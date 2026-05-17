@@ -1,0 +1,243 @@
+■■■ sp14 (XML 방식) vs sp15 (Annotation 방식) 비교표 ■■■
+작성일: 2026-05-17
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 한 줄 비유
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  sp14 = 인사팀(XML 파일)이 모든 직원 정보를 수기로 일일이 관리
+  sp15 = 직원들이 자기 명찰(@)을 직접 달고 다니면 인사팀이 자동으로 인식
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 항목별 비교
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌──────────────────────┬─────────────────────────┬──────────────────────────────┐
+  │ 항목                 │ sp14 (XML)              │ sp15 (Annotation)            │
+  ├──────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ 컨트롤러 등록        │ servlet-context.xml에   │ @Controller 하나면 자동 등록  │
+  │                      │ bean 태그 일일이 작성   │                              │
+  ├──────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ URL 매핑             │ bean name="/xxx.action" │ @RequestMapping("/xxx.action")│
+  ├──────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ 컨트롤러 클래스      │ implements Controller   │ 상속/구현 없음               │
+  │                      │ 필수                    │                              │
+  ├──────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ 처리 메서드          │ handleRequest() 고정    │ 메서드명 자유롭게 작성        │
+  ├──────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ DAO 주입             │ XML <property> 태그로   │ @Autowired / @Resource 로     │
+  │                      │ setter 통해 주입        │ 필드에 바로 주입              │
+  ├──────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ DAO 빈 등록          │ root-context.xml에      │ @Repository 하나면 자동 등록  │
+  │                      │ bean 태그 작성          │                              │
+  ├──────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ 파라미터 수신        │ request.getParameter()  │ @RequestParam("이름")         │
+  ├──────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ 뷰 + 데이터 반환     │ ModelAndView 객체 생성  │ Model 파라미터 + String 반환  │
+  │                      │ 후 반환                 │ (또는 ModelAndView 그대로)    │
+  ├──────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ 컨트롤러 파일 수     │ 기능 1개 = 파일 1개     │ 기능 여러 개 = 파일 1개       │
+  │                      │ (20개 이상)             │ (4~5개로 통합)               │
+  ├──────────────────────┼─────────────────────────┼──────────────────────────────┤
+  │ servlet-context.xml  │ 수십 줄의 bean 태그     │ component-scan 한 줄         │
+  └──────────────────────┴─────────────────────────┴──────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 컨트롤러 코드 비교
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [ sp14 방식 ]
+
+  // 파일 1: EmployeeListController.java
+  public class EmployeeListController implements Controller {
+
+      private IEmployeeDAO dao;
+      public void setDao(IEmployeeDAO dao) { this.dao = dao; }
+
+      @Override
+      public ModelAndView handleRequest(HttpServletRequest request,
+                                        HttpServletResponse response) throws Exception {
+          ModelAndView mav = new ModelAndView();
+          mav.addObject("EmployeeList", dao.list());
+          mav.setViewName("EmployeeList");
+          return mav;
+      }
+  }
+
+  // 파일 2: EmployeeInsertController.java  (별도 파일)
+  // 파일 3: EmployeeDeleteController.java  (별도 파일)
+  // 파일 4: EmployeeUpdateController.java  (별도 파일)
+  // ... 총 6개 파일
+
+  -------------------------------------------------------
+
+  [ sp15 방식 ]
+
+  // 파일 1개로 전부 처리: EmployeeController.java
+  @Controller
+  public class EmployeeController {
+
+      @Autowired
+      private IEmployeeDAO dao;
+
+      @RequestMapping("/employeelist.action")
+      public String list(Model model) throws Exception {
+          model.addAttribute("EmployeeList", dao.list());
+          return "EmployeeList";
+      }
+
+      @RequestMapping("/employeeinsert.action")
+      public String insert(Employee employee) throws Exception {
+          dao.add(employee);
+          return "redirect:employeelist.action";
+      }
+
+      @RequestMapping("/employeedelete.action")
+      public String delete(@RequestParam("employeeId") String id) throws Exception {
+          dao.remove(id);
+          return "redirect:employeelist.action";
+      }
+  }
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ XML 설정 파일 비교
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [ sp14 servlet-context.xml — 수십 줄 ]
+
+  <beans:bean name="/employeelist.action"
+      class="com.doit.app.controller.EmployeeListController">
+      <beans:property name="dao" ref="employeeDAO"/>
+  </beans:bean>
+
+  <beans:bean name="/regionlist.action"
+      class="com.doit.app.controller.RegionListController">
+      <beans:property name="dao" ref="regionDAO"/>
+  </beans:bean>
+
+  <!-- ... 20개 이상 반복 ... -->
+
+  -------------------------------------------------------
+
+  [ sp15 servlet-context.xml — 딱 이것만 ]
+
+  <annotation-driven />
+  <context:component-scan base-package="com.doit.app"/>
+  <beans:bean class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+      <beans:property name="prefix" value="/WEB-INF/views/"/>
+      <beans:property name="suffix" value=".jsp"/>
+  </beans:bean>
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ DAO 주입 방식 비교
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [ sp14 방식 ]
+
+  // 1. Java 코드에 setter 작성
+  private IEmployeeDAO dao;
+  public void setDao(IEmployeeDAO dao) { this.dao = dao; }
+
+  // 2. XML에 property 태그로 주입
+  <beans:property name="dao" ref="employeeDAO"/>
+
+  -------------------------------------------------------
+
+  [ sp15 방식 ]
+
+  // 딱 한 줄로 끝 — setter도 필요 없고 XML도 필요 없음
+  @Autowired
+  private IEmployeeDAO dao;
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 파라미터 수신 방식 비교
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [ sp14 방식 ]
+  String employeeId = request.getParameter("employeeId");
+  String name       = request.getParameter("name");
+
+  [ sp15 방식 ]
+  public String delete(@RequestParam("employeeId") String employeeId) { ... }
+
+  [ sp15 방식 — DTO 자동 바인딩 (파라미터명 == 필드명이면 자동 매핑) ]
+  public String insert(Employee employee) { ... }
+  // 폼에서 name="employeeId", name="employeeName" 등으로 넘어오면
+  // Employee 객체의 필드에 자동으로 값이 세팅됨
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 뷰 반환 방식 비교
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [ sp14 방식 ]
+  ModelAndView mav = new ModelAndView();
+  mav.addObject("EmployeeList", list);
+  mav.setViewName("EmployeeList");
+  return mav;
+
+  [ sp15 방식 A — 권장 ]
+  model.addAttribute("EmployeeList", list);
+  return "EmployeeList";
+
+  [ sp15 방식 B — 리다이렉트 ]
+  return "redirect:employeelist.action";
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ @Autowired vs @Resource 비교
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌──────────────┬───────────────────┬───────────────────────────┐
+  │              │ @Autowired        │ @Resource                 │
+  ├──────────────┼───────────────────┼───────────────────────────┤
+  │ 주입 기준    │ 타입(Type)        │ 이름(Name)                │
+  │ 출처         │ Spring 전용       │ Java 표준 (JSR-250)       │
+  │ 같은 타입 2개│ 에러 발생         │ 이름으로 구분 가능        │
+  │ 해결책       │ @Qualifier 추가   │ name 속성 지정            │
+  └──────────────┴───────────────────┴───────────────────────────┘
+
+  예시)
+  @Autowired
+  @Qualifier("mainDAO")      // 같은 타입 여러 개일 때
+  private IEmployeeDAO dao;
+
+  @Resource(name="employeeDAO")  // 이름으로 지정
+  private IEmployeeDAO dao;
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 요청 처리 흐름 비교
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [ sp14 흐름 ]
+  브라우저 → DispatcherServlet
+           → servlet-context.xml에서 bean name으로 컨트롤러 검색
+           → handleRequest() 실행
+           → ModelAndView 반환
+           → ViewResolver → .jsp 렌더링
+
+  [ sp15 흐름 ]
+  브라우저 → DispatcherServlet
+           → @RequestMapping 달린 메서드 검색
+           → 해당 메서드 실행
+           → String(뷰이름) 반환
+           → ViewResolver → .jsp 렌더링
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 핵심 요약
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  sp14 문제점                    sp15 해결
+  ─────────────────────────────────────────────────
+  XML이 너무 길어짐           →  component-scan 한 줄로 해결
+  컨트롤러 파일이 너무 많음   →  @RequestMapping으로 메서드 통합
+  setter 코드가 반복됨        →  @Autowired로 한 줄 처리
+  implements Controller 강제  →  자유로운 클래스 설계 가능
