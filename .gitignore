@@ -1,0 +1,52 @@
+# ================================================
+# Spring MVC / Maven 프로젝트 .gitignore
+# ================================================
+# 이 파일에 적힌 파일/폴더는 Git이 완전히 무시함
+# → 집↔학원 설정 꼬임 방지
+
+
+# ─── Maven 빌드 결과물 ───────────────────────────
+target/
+*.war
+*.jar
+*.class
+
+
+# ─── Eclipse / STS 설정 파일 (★ 핵심) ──────────
+# 이 파일들이 집↔학원 꼬임의 주범
+# 컴퓨터마다 경로/설정이 달라서 공유하면 안 됨
+.settings/
+.classpath
+.project
+.springBeans
+.sts4-cache/
+.factorypath
+
+
+# ─── IntelliJ IDEA ──────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+
+
+# ─── OS 자동 생성 파일 ──────────────────────────
+# Windows
+Thumbs.db
+desktop.ini
+
+# Mac
+.DS_Store
+._*
+
+
+# ─── 로그 파일 ──────────────────────────────────
+*.log
+logs/
+
+
+# ─── 환경 설정 / 보안 파일 ──────────────────────
+# DB 비밀번호, API 키 등 절대 올리면 안 되는 파일
+*.env
+application-local.properties
+secret.properties
