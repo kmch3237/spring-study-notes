@@ -1,0 +1,243 @@
+dataSource는? DB 연결 정보 객체
+
+public class DriverManagerDataSource {
+    private String url;        // DB 주소
+    private String username;   // 계정
+    private String password;   // 비밀번호
+    private String driverClassName;  // Oracle 드라이버
+    
+    public Connection getConnection() {
+        // 위 정보로 Oracle 연결해서 Connection 반환!
+        return DriverManager.getConnection(url, username, password);
+    }
+}
+어떻게 만들어지나?
+<!-- 1. 외부 파일에서 값 읽기 -->
+<context:property-placeholder 
+    location="classpath:/mybatis/jdbc.properties"/>
+
+# jdbc.properties (별도 파일)
+jdbc.driverClass=oracle.jdbc.driver.OracleDriver
+jdbc.uri=jdbc:oracle:thin:@//127.0.0.1:1521/xe
+jdbc.username=scott
+jdbc.password=tiger
+
+<!-- 2. 값을 객체에 주입 -->
+<bean id="dataSource" 
+      class="org.springframework.jdbc.datasource.DriverManagerDataSource">
+    <property name="driverClassName" value="${jdbc.driverClass}"/>
+    <property name="url" value="${jdbc.uri}"/>
+    <property name="username" value="${jdbc.username}"/>
+    <property name="password" value="${jdbc.password}"/>
+</bean>
+--------------------------------------------------------------------------------------
+
+
+
+→ 톰캣 시작 시 root-context.xml에서 만든 그 객체!
+톰캣 시작할 때 일어나는 일
+[톰캣 시작]
+    ↓
+web.xml의 ContextLoaderListener 실행
+    ↓
+root-context.xml 로딩
+    ↓
+<import>로 mybatis-context.xml 같이 읽음
+    ↓
+jdbc.properties 파일 값 읽음 (4개 정보)
+    ↓
+new DriverManagerDataSource() 실행
+    ↓
+setDriverClassName("oracle...") 호출
+setUrl("jdbc:oracle:...") 호출
+setUsername("scott") 호출
+setPassword("tiger") 호출
+    ↓
+dataSource 객체 완성! 메모리에 보관
+    ↓
+필요한 곳에서 ref="dataSource"로 가져다 씀!
+
+
+-------------------------------------------------------------------------------------
+servlet-context.xml의 bean/property
+- beans  <beans> 태그 - "객체 만들어줘!"
+
+<beans:bean id="memberDAO" class="com.doit.app.service.MemberDAO"/>
+       ↑     ↑              ↑
+    태그명  이름표           어떤 클래스
+
+자바로 비유하면:
+MemberDAO memberDAO = new MemberDAO();
+//   ↑ id              ↑ class
+
+왜 beans: 접두사가 붙어?
+xml<!-- servlet-context.xml 맨 위 -->
+<beans:beans xmlns="http://...mvc"           ← 기본 네임스페이스
+             xmlns:beans="http://...beans">  ← beans 네임스페이스
+xml기본 네임스페이스 = mvc
+   ↓
+<resources/> ← 그냥 쓰면 mvc 태그!
+
+beans는 별도 표시 필요
+   ↓
+<beans:bean/> ← beans 네임스페이스의 bean 태그!
+servlet-context.xml은 MVC가 메인이라 bean이 손님이에요!
+(반대로 root-context.xml은 beans가 메인이라 그냥 <bean> 으로 씀)
+
+
+
+- property = 값 넣어줘!
+<beans:bean id="memberDAO" class="...MemberDAO">
+    <beans:property name="dataSource" ref="dataSource"/>
+              ↑       ↑                  ↑
+           setter 호출  필드명          참조할 bean
+</beans:bean>
+
+
+= name 속성의 마법
+<property name="dao" .../>
+              ↑
+        setter 이름 결정!
+
+스프링 내부 동작:
+"dao" → 첫 글자 대문자 → "Dao" → "set" + "Dao" = setDao()
+
+public void setDao(IMemberDAO dao) { ... }
+//            ↑ 이걸 호출함!
+그래서 property name과 setter 이름이 정확히 맞아야 해요!
+
+
+○ value vs ref 차이
+<!-- value: 진짜 값 넣기 -->
+<property name="url" value="jdbc:oracle:..."/>
+                       ↑ 그냥 문자열
+
+자바: setUrl("jdbc:oracle:...");
+
+
+<!-- ref: 다른 bean 참조 -->
+<property name="dataSource" ref="dataSource"/>
+                              ↑ 다른 bean id
+
+자바: setDataSource(dataSource객체);
+
+-------------------------------------------------------------------------------------
+
+ModelAndView
+
+ModelAndView 정체
+ public class ModelAndView {
+    private Map<String, Object> model;  // 데이터 보관함
+    private String viewName;             // 보여줄 화면 이름
+}
+- mav.addObject
+addObject() - "데이터 담아!"
+mav.addObject("count", count);
+//             ↑ key   ↑ value
+
+내부적으로 일어나는 일:
+ ModelAndView 내부 (대충)
+public void addObject(String name, Object value) {
+    model.put(name, value);  // Map에 저장!
+}
+
+ModelAndView 내부:
+┌──────────────────────────┐
+│       model (Map)        	│
+│                          	│
+│  "count"      → 3        	│
+│  "memberList" → [홍길동...] │
+│                         	│
+│       viewName               │
+│  "memberList"                │
+└──────────────────────────┘
+
+Controller
+    │
+    ├─ mav.addObject("count", 3);
+    ├─ mav.addObject("memberList", list);
+    ├─ mav.setViewName("memberList");
+    │
+    ▼
+return mav;
+    │
+    ▼
+DispatcherServlet이 받음
+    ├─ "viewName이 memberList네?"
+    │   → ViewResolver로 JSP 찾음
+    │   → /WEB-INF/views/memberList.jsp
+    │
+    ├─ "model에 데이터 있네?"
+    │   → JSP에 request 속성으로 전달
+    │
+    ▼
+JSP 실행
+    ├─ ${count}      → 3 출력
+    └─ ${memberList} → 리스트 출력
+
+
+
+JSP에서 어떻게 꺼내나?
+${count}
+   ↑
+스프링이 request 속성에 자동으로 넣어준 것!
+
+내부적으로는:
+request.getAttribute("count")
+                       ↑
+              addObject의 첫 번째 인자!
+
+
+
+
+EL 표현식 자동 변환
+<!-- 단순 값 -->
+${count}
+   ↓
+3
+
+<!-- 객체의 속성 -->
+${m.name}
+   ↓
+m.getName() 자동 호출!
+
+--------------------------------------------------------------------------------------
+
+
+3가지 연결 흐름
+[톰캣 시작]
+    ↓
+dataSource 객체 생성 (jdbc.properties 값으로)
+    ↓
+memberDAO 객체 생성 + dataSource 주입
+    ↓
+Controller 객체 생성 + memberDAO 주입
+    ↓
+대기 중...
+    
+    
+[요청 발생]
+    ↓
+Controller 실행
+    │
+    ├─ memberDAO 사용
+    │   ↓
+    ├─ memberDAO가 dataSource 사용
+    │   ↓
+    └─ dataSource로 Connection 얻어 SQL 실행
+            ↓
+        결과 받음
+    ↓
+ModelAndView 생성
+    │
+    ├─ addObject("key", 결과)
+    └─ setViewName("화면이름")
+    ↓
+JSP에서 ${key}로 출력
+------------------------------------------------------------------------------------
+
+
+
+서브쿼리, LEFT JOIN 성능 차이
+----------
+COMMIT

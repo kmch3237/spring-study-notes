@@ -1,0 +1,9 @@
+ [servlet-context.xml] 
+[root-context.xml] 
+이렇게 나눈 이유 면접 질문...
+= 유지보수가 쉬워서..
+=========================
+
+설정등록 클래스/ 어디서하느냐 항상 생각하면서 
+
+ex root-context.xml = dao,모델

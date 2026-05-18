@@ -1,0 +1,214 @@
+1단계 — Tomcat 시작 (서버 켤 때 딱 한 번)
+
+  web.xml 읽기
+
+  Tomcat이 켜지면 가장 먼저 web.xml을 읽어요.
+
+  <context-param>
+      <param-name>contextConfigLocation</param-name>
+      <param-value>/WEB-INF/spring/root-context.xml</param-value>
+  </context-param>
+
+  ▎ "root-context.xml 파일이 어디 있는지 알려주는 설정"
+
+  ---
+  ContextLoaderListener 실행
+
+  <listener>
+
+  <listener-class>org.springframework.web.context.ContextLoaderListener</listener-class>
+  </listener>
+
+  ▎ Tomcat이 시작될 때 이 리스너가 자동으로 실행됨
+  ▎ 역할: root-context.xml을 읽어서 DB 관련 객체들을 미리 만들어 놓음
+
+  ---
+  root-context.xml 읽기
+
+  <import resource="classpath:/mybatis/mybatis-context.xml" />
+  <bean id="memberDAO" class="com.doit.app.service.MemberDAO">
+      <property name="dataSource" ref="dataSource" />
+  </bean>
+
+  ▎ mybatis-context.xml을 불러오고, MemberDAO 객체를 만들어서 dataSource를 주입함
+
+  ---
+  mybatis-context.xml 읽기
+
+  <bean id="dataSource"
+  class="org.springframework.jdbc.datasource.DriverManagerDataSource">
+      <property name="driverClassName" value="${jdbc.driverClass}"/>
+      <property name="url" value="${jdbc.uri}"/>
+      <property name="username" value="${jdbc.username}"/>
+      <property name="password" value="${jdbc.password}"/>
+  </bean>
+
+  ▎ jdbc.properties 파일에서 DB 접속 정보를 읽어서 DB 연결 객체(dataSource)를 만듦
+  ▎ 이 시점에 DB와 연결 준비 완료
+
+  ---
+  DispatcherServlet 초기화
+
+  <servlet>
+      <servlet-name>appServlet</servlet-name>
+      <servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+      <init-param>
+          <param-value>/WEB-INF/spring/appServlet/servlet-context.xml</param-value>
+      </init-param>
+      <load-on-startup>1</load-on-startup>
+  </servlet>
+
+  ▎ load-on-startup>1 때문에 서버 시작할 때 DispatcherServlet을 미리 만들어 놓음
+  ▎ DispatcherServlet = 모든 요청을 처음 받아서 적절한 컨트롤러에게 넘겨주는 문지기
+
+  ---
+  servlet-context.xml 읽기
+
+  <beans:bean name="/memberlist.do" class="com.doit.app.controller.MemberListController">
+      <beans:property name="dao" ref="memberDAO" />
+  </beans:bean>
+
+  <beans:bean name="/memberInsert.do"
+  class="com.doit.app.controller.MemberInsertController">
+      <beans:property name="dao" ref="memberDAO" />
+  </beans:bean>
+
+  ▎ /memberlist.do 요청이 오면 → MemberListController 실행
+  ▎ /memberInsert.do 요청이 오면 → MemberInsertController 실행
+  ▎ 각 컨트롤러에 아까 만들어 둔 memberDAO를 주입해 놓음
+
+  ---
+  2단계 — 브라우저에서 요청
+
+  http://localhost:8080/app/memberlist.do 입력
+
+  ---
+  Filter 통과 (한글 처리)
+
+  <filter>
+      <filter-class>org.springframework.web.filter.CharacterEncodingFilter</filter-class>
+      <init-param>
+          <param-name>encoding</param-name>
+          <param-value>UTF-8</param-value>
+      </init-param>
+  </filter>
+  <filter-mapping>
+      <url-pattern>/*</url-pattern>
+  </filter-mapping>
+
+  ▎ 모든 요청(/*)이 들어올 때 한글 깨짐 방지 처리를 먼저 함
+
+  ---
+  DispatcherServlet이 요청 받음
+
+  <servlet-mapping>
+      <servlet-name>appServlet</servlet-name>
+      <url-pattern>/</url-pattern>
+  </servlet-mapping>
+
+  ▎ / 로 설정되어 있어서 모든 요청을 DispatcherServlet이 받음
+  ▎ DispatcherServlet이 /memberlist.do 를 보고 → servlet-context.xml에서 찾음
+
+  ---
+  MemberListController.handleRequest() 실행
+
+  public ModelAndView handleRequest(HttpServletRequest request, HttpServletResponse
+  response) {
+      ModelAndView mav = new ModelAndView();
+
+      int count = 0;
+      ArrayList<MemberDTO> memberList = new ArrayList<MemberDTO>();
+
+      count = dao.count();       // DB에서 인원수 조회
+      memberList = dao.list();   // DB에서 전체 목록 조회
+
+      mav.setViewName("memberList");           // 보여줄 JSP 이름
+      mav.addObject("count", count);           // JSP에 넘길 데이터
+      mav.addObject("memberList", memberList); // JSP에 넘길 데이터
+
+      return mav;
+  }
+
+  ▎ dao.count(), dao.list() → MemberDAO가 Oracle DB에 SQL 실행
+  ▎ 결과를 ModelAndView에 담아서 반환
+
+  ---
+  InternalResourceViewResolver가 JSP 경로로 변환
+
+  <beans:bean class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+      <beans:property name="prefix" value="/WEB-INF/views/" />
+      <beans:property name="suffix" value=".jsp" />
+  </beans:bean>
+
+  ▎ "memberList" → /WEB-INF/views/ + memberList + .jsp
+  ▎ = /WEB-INF/views/memberList.jsp 로 변환
+
+  ---
+  memberList.jsp 렌더링
+
+  <p>현재 인원 수 : ${count}명</p>   ← 컨트롤러에서 넘긴 count 출력
+
+  <c:forEach var="m" items="${memberList}">
+      <tr>
+          <td>${m.mid}</td>
+          <td>${m.name}</td>
+          <td>${m.telephone}</td>
+      </tr>
+  </c:forEach>
+
+  ▎ 컨트롤러가 담아준 count, memberList 데이터를 화면에 뿌림
+  ▎ 완성된 HTML이 브라우저로 전송됨 → 화면에 표시
+
+  ---
+  3단계 — 회원 추가 버튼 클릭
+
+  폼 제출 → memberInsert.do 요청
+
+  <form action="memberInsert.do" method="post" id="memberForm">
+      이름 <input type="text" name="name">
+      전화 <input type="text" name="telephone">
+  </form>
+
+  ▎ POST 방식으로 memberInsert.do 에 이름/전화번호 데이터 전송
+
+  ---
+  MemberInsertController.handleRequest() 실행
+
+  String name = request.getParameter("name");
+  String telephone = request.getParameter("telephone");
+
+  MemberDTO member = new MemberDTO();
+  member.setName(name);
+  member.setTelephone(telephone);
+
+  dao.add(member);  // DB에 INSERT
+
+  mav.setViewName("redirect:memberlist.do"); // 목록 페이지로 이동
+
+  ▎ 폼에서 받은 이름/전화번호를 DB에 저장
+  ▎ 저장 완료 후 다시 memberlist.do로 리다이렉트 → 목록 새로고침
+
+  ---
+  전체 흐름 한 눈에
+
+  브라우저
+    │ http://localhost:8080/app/memberlist.do
+    ▼
+  Filter (한글처리)
+    ▼
+  DispatcherServlet (web.xml의 url-pattern="/")
+    │ /memberlist.do 확인
+    ▼
+  MemberListController (servlet-context.xml에서 매핑)
+    │ dao.count(), dao.list()
+    ▼
+  MemberDAO → Oracle DB (SQL 실행)
+    │ 결과 반환
+    ▼
+  ModelAndView ("memberList", count, memberList 담김)
+    ▼
+  InternalResourceViewResolver → /WEB-INF/views/memberList.jsp
+    ▼
+  memberList.jsp → HTML 완성
+    ▼
+  브라우저 화면 출력

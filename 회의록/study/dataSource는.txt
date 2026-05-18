@@ -1,0 +1,17 @@
+dataSource는?
+→ 톰캣 시작 시 root-context.xml에서 만든 그 객체!
+→ jdbc.properties의 정보로 오라클 연결!
+-----------------
+servlet-context.xml
+- beans
+- properity
+-----------------
+
+ModelAndView
+- mav.addObject
+-----------------
+
+
+서브쿼리, LEFT JOIN 성능 차이
+----------
+COMMIT

@@ -1,0 +1,161 @@
+[0518] study
+
+sp16 
+배포해준 pom.xml 
+레거시 짤 때 웬만해선 다 가능
+이거 가져다 쓰면 댐 
+
+1시간 에러
+
+maven 개념 
+pom.xml
+
+m2 → repository 삭제 후 재시작 
+
+
+servlet-context.xml  annotation 사용 시.. 
+<context:component-scan base-package="com.doit.app" />
+	<!-- base-package 속성의 속성값으로 Controller 객체가 포함된 패키지 경로 지정-->
+
+
+servlet-context.xml 
+ -컨트롤러(사용자 정의 컨트롤러) 스캔, 뷰 리졸버(JSP 경로) 등 웹 관련 설정
+
+오전 10~11
+mybatis-context.xml 설정해서 
+내가쓴거 clone // jdbc.uri 
+클로드가 말한거 close?// jidb.url? 나중에 check
+
+
+
+
+오후2시 mapper 
+처음 배우는거라 집중!!
+
+mybatis안에 mapper 폴더 
+
+
+
+
+
+
+==================================================
+uri/ url 차이 
+
+// 방식 A: 인라인 (지금 코드)
+mav.addObject("EmployeeList", dao.list());
+
+// 방식 B: 변수에 담아서
+List<Employee> employeeList = dao.list();
+mav.addObject("EmployeeList", employeeList);
+
+
+두 코드 모두 JVM에서 동작은:
+
+dao.list() 호출 → List 객체 반환
+그 List 객체의 참조(reference)를 Model에 넣음
+
+결과적으로 Model에 들어가는 값은 동일한 List 객체입니다.
+그럼 언제 어느 걸 쓰나
+인라인(A) 쓰기 좋은 경우
+
+결과를 딱 한 번만 쓰고 끝낼 때
+코드가 짧고 명확할 때
+
+변수(B) 쓰는 게 나은 경우
+
+디버깅할 때: 변수에 담아두면 브레이크포인트 걸고 employeeList 내용을 들여다보기 쉬워요. 인라인이면 Expression 평가를 따로 해야 합니다.
+결과를 두 번 이상 사용할 때:
+
+java  List<Employee> employeeList = dao.list();
+  System.out.println("조회된 직원 수: " + employeeList.size());
+  mav.addObject("EmployeeList", employeeList);
+  mav.addObject("totalCount", employeeList.size());
+
+null 체크나 가공이 필요할 때:
+
+java  List<Employee> employeeList = dao.list();
+  if (employeeList == null) employeeList = new ArrayList<>();
+  mav.addObject("EmployeeList", employeeList);
+학습 단계에서는 변수(B) 방식이 디버깅이나 흐름 파악에 더 좋고, 실무에서는 상황에 따라 섞어 씁니다. 정답이 있는 건 아니에요.
+
+
+
+
+
+
+
+jdbc.uri=jdbc:oracle:thin:@//127.0.0.1:1521/xe 
+오라클 버전에 따라 // check!!  
+
+
+
+
+========================
+
+
+이전 방식(ROWNUM, ROW_NUMBER)과 비교
+Oracle 11g 이하에서 쓰던 두 가지 전통 방식과 비교해보면 OFFSET/FETCH의 장점이 명확합니다.
+ROWNUM 방식 — 11g 이하
+sqlSELECT * FROM (
+    SELECT ROWNUM RN, T.* FROM (
+        SELECT NUM, SUBJECT FROM BBS ORDER BY NUM DESC
+    ) T
+    WHERE ROWNUM <= 30      -- offset + fetch
+)
+WHERE RN > 20;              -- offset
+
+단점: 서브쿼리 두 번 감싸야 함. 가독성 나쁨. 실수하기 쉬움.
+장점: 옵티마이저가 인라인 뷰 안에서 ROWNUM <= 30을 일찍 적용해 빠를 수 있음 (top-N optimization).
+
+ROW_NUMBER 방식 — 분석 함수
+sqlSELECT * FROM (
+    SELECT ROW_NUMBER() OVER (ORDER BY NUM DESC) RN,
+           NUM, SUBJECT
+    FROM BBS
+)
+WHERE RN BETWEEN 21 AND 30;
+
+단점: 전체 결과에 번호 매긴 후 잘라내는 방식이라 데이터가 많으면 느릴 수 있음.
+장점: 표현이 명시적이고 페이지 시작/끝을 직접 지정.
+
+OFFSET/FETCH 방식 — 12c+
+sqlSELECT NUM, SUBJECT FROM BBS
+ORDER BY NUM DESC
+OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY;
+
+장점: 가독성 최고. 표준 SQL.
+내부 동작: 오라클은 실행 계획상 이걸 자동으로 ROW_NUMBER() 기반으로 변환해서 처리합니다. 즉 12c의 OFFSET/FETCH는 **문법 설탕(syntactic sugar)**에 가까워요.
+
+7. 성능 주의사항 — 깊은 페이지의 함정 🚨
+sqlSELECT * FROM BBS ORDER BY NUM DESC
+OFFSET 1000000 ROWS FETCH NEXT 10 ROWS ONLY;
+-- 100만 페이지 같은 깊은 페이지
+이게 느린 이유: 오라클은 OFFSET이 1,000,000이라고 해서 그냥 1,000,001번째 행으로 점프하지 않습니다. 1,000,010개의 행을 정렬한 뒤 앞 1,000,000개를 버리는 식이에요. → OFFSET이 클수록 느려짐.
+해결책: "keyset pagination" 또는 "cursor pagination"
+이전 페이지의 마지막 행 값을 기억해뒀다가 WHERE 절로 조건을 거는 방식:
+sql-- 첫 페이지
+SELECT * FROM BBS ORDER BY NUM DESC FETCH FIRST 10 ROWS ONLY;
+-- 결과의 마지막 NUM이 1234라고 가정
+
+-- 다음 페이지: OFFSET 안 쓰고 WHERE로 처리
+SELECT * FROM BBS
+ WHERE NUM < 1234           -- ← 이전 페이지 마지막 값
+ ORDER BY NUM DESC
+ FETCH FIRST 10 ROWS ONLY;
+NUM에 인덱스가 있으면 인덱스 스캔으로 바로 그 지점부터 10개만 읽어요. OFFSET이 아무리 깊어도 일정한 속도. 단점은 "5페이지로 점프" 같은 임의 페이지 이동이 어렵다는 것. 보통 페이스북/트위터 같은 무한스크롤 UI에서 씁니다.
+게시판처럼 페이지 번호를 직접 클릭하는 UI는 OFFSET/FETCH로 충분하고, 깊은 페이지가 잘 안 쓰이는 패턴이라 큰 문제가 되진 않아요.
+8. 실수하기 쉬운 포인트 정리
+
+WITH TIES는 ORDER BY 필수 — 없으면 에러.
+ROWNUM과 섞어 쓰지 말 것 — WHERE ROWNUM <= 10과 FETCH FIRST 10 같이 쓰면 의도와 다르게 동작.
+OFFSET은 0부터 시작 — 1페이지의 OFFSET은 0이지 1이 아님.
+정렬 기준은 고유성을 보장하는 컬럼 포함 — 같은 값이 여러 개면 페이지 경계에서 행이 누락/중복될 수 있음.
+바인드 변수로 음수 넣지 말기 — OFFSET이 음수면 0으로 간주되지만, FETCH가 음수면 에러.
+FETCH FIRST 0 ROWS ONLY — 빈 결과를 반환. 메타데이터(컬럼 정보)만 받고 싶을 때 유용.
+
+9. 한 줄 요약
+
+**OFFSET n ROWS FETCH NEXT m ROWS ONLY**는 "정렬된 결과에서 앞 n개를 건너뛰고 그다음 m개를 가져와라"는 의미. 12c부터 도입된 표준 페이징 문법. 반드시 ORDER BY와 함께, 가능한 한 고유 컬럼으로 정렬해서 쓰는 것이 안전한 사용법.
+
+게시판 페이징은 이 두 줄(COUNT 쿼리로 전체 건수 + OFFSET/FETCH로 현재 페이지)만 잘 짜면 끝나니까, 패턴으로 익혀두시면 평생 쓰십니다.
