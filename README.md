@@ -8,6 +8,7 @@ Spring MVC 수업 내용을 정리한 저장소입니다.
 
 | 파일 | 내용 |
 |------|------|
+| [sp14_mvc_crud_흐름정리.txt](./sp14_mvc_crud_흐름정리.txt) | Insert / Update / Delete 요청 처리 흐름 상세 정리 |
 | [sp14_vs_sp15_비교.txt](./sp14_vs_sp15_비교.txt) | XML 방식 vs Annotation 방식 전체 비교 |
 | [sp15_annotation_study.txt](./sp15_annotation_study.txt) | Spring MVC Annotation 개념 및 예시 정리 |
 | [git_명령어_정리.txt](./git_명령어_정리.txt) | Git 기본 명령어 및 집↔학원 작업 순서 정리 |
