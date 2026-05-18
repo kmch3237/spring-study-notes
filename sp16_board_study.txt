@@ -1,0 +1,761 @@
+■■■ Spring MVC 게시판 완전 정리 (sp16_board) ■■■
+작성일: 2026-05-19
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ sp16에서 강사님이 가르치려는 핵심 3가지
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. 3계층 구조 — Controller → Service → Mapper(DAO)
+     : sp15까지 Controller가 직접 DAO를 불렀던 방식에서
+       Service 레이어를 중간에 끼워 비즈니스 로직을 분리
+
+  2. @Mapper + MyBatis — 구현 클래스 없이 인터페이스만으로 DB 처리
+     : 인터페이스 메서드 이름 = XML Mapper의 SQL id 이름 → 자동 연결
+
+  3. 실전 게시판 기능 — 목록/상세/등록/수정/삭제 + 페이징 + 검색 + 이전글/다음글
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 전체 프로젝트 구조 한눈에 보기
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  sp14 (XML 방식)          sp15 (Annotation)         sp16 (게시판 실전)
+  ──────────────────────   ──────────────────────    ──────────────────────
+  XML에 bean 등록           @Controller 자동 등록     @Controller 자동 등록
+  Controller → DAO          Controller → DAO          Controller
+                                                         ↓
+                                                       Service (인터페이스)
+                                                         ↓
+                                                       Mapper (인터페이스, @Mapper)
+                                                         ↓
+                                                       bbsMapper.xml (SQL)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 패키지 구조와 각 파일의 역할
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  com.doit.app
+  ├── domain         → Board.java         (DTO: DB 컬럼을 담는 그릇)
+  ├── service        → BoardService.java  (Service 인터페이스: 기능 목록 선언)
+  ├── mapper         → BoardMapper.java   (Mapper 인터페이스: SQL 연결 담당)
+  └── controller     → (나중에 추가될 BoardController.java)
+
+  resources/
+  ├── mybatis/
+  │   ├── jdbc.properties        (DB 접속 정보)
+  │   ├── mybatis-config.xml     (MyBatis 동작 세팅)
+  │   ├── mybatis-context.xml    (빈 등록: DataSource, SqlSession 등)
+  │   └── mapper/
+  │       └── bbsMapper.xml      (실제 SQL 쿼리)
+  └── sql/
+      └── sp16_board_scott.sql   (Oracle 테이블/시퀀스 DDL + DML)
+
+  WEB-INF/
+  ├── web.xml                    (서블릿 설정 + 한글 필터)
+  ├── spring/
+  │   ├── root-context.xml       (DB/MyBatis 빈 로딩)
+  │   └── appServlet/
+  │       └── servlet-context.xml (컨트롤러 스캔 + ViewResolver)
+  └── views/
+      └── (JSP 파일들)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 1] 데이터베이스 설계 — BBS 테이블 & 시퀀스
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  BBS 테이블 컬럼 구조:
+  ┌────────────┬────────────────┬─────────────────────────────────────┐
+  │ 컬럼명     │ 타입           │ 설명                                │
+  ├────────────┼────────────────┼─────────────────────────────────────┤
+  │ NUM        │ NUMBER (PK)    │ 게시글 번호 (BBS_SEQ 시퀀스 사용)   │
+  │ NAME       │ VARCHAR2(30)   │ 작성자 이름                         │
+  │ PWD        │ VARCHAR2(50)   │ 게시글 비밀번호 (수정/삭제 확인용)  │
+  │ SUBJECT    │ VARCHAR2(300)  │ 제목                                │
+  │ CONTENT    │ VARCHAR2(4000) │ 내용                                │
+  │ IPADDR     │ VARCHAR2(50)   │ 작성자 IP 주소                      │
+  │ HITCOUNT   │ NUMBER         │ 조회수 (기본값 0)                   │
+  │ REG_DATE   │ DATE           │ 작성일 (SYSDATE)                    │
+  └────────────┴────────────────┴─────────────────────────────────────┘
+
+  시퀀스 생성 (자동 번호 발급):
+  CREATE SEQUENCE BBS_SEQ
+  INCREMENT BY 1      -- 1씩 증가
+  START WITH 1        -- 1부터 시작
+  NOMAXVALUE          -- 최대값 없음
+  NOCYCLE             -- 끝나도 다시 1로 돌아오지 않음
+  NOCACHE;            -- 캐시 없음
+
+  → BBS_SEQ.NEXTVAL 로 INSERT할 때마다 1, 2, 3... 자동 증가
+
+  삽입 예시:
+  INSERT INTO BBS(NUM, NAME, PWD, SUBJECT, CONTENT, IPADDR, HITCOUNT, REG_DATE)
+  VALUES(BBS_SEQ.NEXTVAL, '홍길동', 'doit5601', '제목', '내용', '192.168.0.1', 0, SYSDATE);
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 2] Board.java — DTO 구성
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  DTO(Data Transfer Object): DB 컬럼 하나하나를 자바 변수로 담는 그릇
+
+  [ 중요 포인트 ]
+  1) num 필드는 int가 아니라 long 타입!
+     → 게시글 번호는 이론적으로 21억을 넘을 수 있으므로 long 사용
+
+  2) regDate 필드 이름 주의!
+     → DB 컬럼: REG_DATE (언더스코어)
+     → 자바 변수: regDate (카멜케이스)
+     → MyBatis가 자동으로 매핑해줌 (camelCase 설정)
+
+  3) hitCount 필드는 int (조회수는 21억 안 넘음)
+
+  [ Board.java 코드 ]
+  public class Board {
+      private long num;                              // 게시글 번호 (long!)
+      private String name, pwd, subject, content;   // 작성자, 비번, 제목, 내용
+      private String ipAddr;                         // IP 주소
+      private String regDate;                        // 작성일 (DB: REG_DATE)
+      private int hitCount;                          // 조회수
+
+      // getter/setter 생략 (전부 있음)
+  }
+
+  비유: Board.java = 게시판 글 한 장. 한 행(ROW)의 데이터를 담는 상자.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 3] 3계층 구조 — Service & Mapper 분리 이유
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [ sp15까지의 2계층 구조 ]
+  Controller → DAO (직접 DB 처리)
+  문제점: 컨트롤러가 너무 많은 일을 함 (URL 처리 + DB 처리 동시에)
+
+  [ sp16의 3계층 구조 ]
+  Controller → Service → Mapper(DAO)
+
+  각 계층의 역할:
+  ┌────────────┬──────────────────────────────────────────────────────┐
+  │ 계층       │ 역할                                                 │
+  ├────────────┼──────────────────────────────────────────────────────┤
+  │ Controller │ URL 요청 받기 + 결과를 View(JSP)에 전달              │
+  │            │ 비즈니스 로직은 Service에 위임                       │
+  ├────────────┼──────────────────────────────────────────────────────┤
+  │ Service    │ 비즈니스 로직 담당 (트랜잭션, 여러 DAO 조합 등)       │
+  │            │ "글 삭제 = 비밀번호 확인 후 삭제" 같은 규칙 처리     │
+  ├────────────┼──────────────────────────────────────────────────────┤
+  │ Mapper     │ DB와 직접 통신 (SQL 실행)                            │
+  │            │ MyBatis XML과 연결                                   │
+  └────────────┴──────────────────────────────────────────────────────┘
+
+  비유:
+  Controller = 손님 응대하는 직원 (주문 받기)
+  Service    = 주방장 (어떻게 요리할지 결정)
+  Mapper     = 조리 기계 (실제 SQL 실행)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 4] BoardService.java — Service 인터페이스
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Service 인터페이스는 "무슨 기능이 있는지" 목록만 선언.
+  실제 구현은 나중에 BoardServiceImpl.java 에서 한다.
+
+  public interface BoardService {
+      // 게시글 CRUD
+      public void insertBoard(Board dto) throws Exception;   // 등록
+      public void updateBoard(Board dto) throws Exception;   // 수정
+      public void deleteBoard(long num) throws Exception;    // 삭제
+      public void updateHit(long num) throws Exception;      // 조회수 +1
+
+      // 목록 조회 (검색 포함)
+      public int dataCount(Map<String, Object> map);         // 전체 게시글 수
+      public List<Board> listBoard(Map<String, Object> map); // 목록 가져오기
+
+      // 상세 조회
+      public Board findById(long num);                        // 번호로 한 건 조회
+
+      // 이전글 / 다음글 (검색 포함)
+      public Board findByPrev(Map<String, Object> map);      // 이전 게시글
+      public Board findByNext(Map<String, Object> map);      // 다음 게시글
+  }
+
+  [ Map<String, Object> map 을 쓰는 이유 ]
+  검색할 때 여러 조건(검색어, 검색타입, 페이지번호 등)을 한 번에 전달해야 함.
+  DTO에 넣기엔 너무 잡다한 정보들이라 Map을 활용.
+  예: { "searchType": "subject", "keyword": "스프링", "offset": 0, "size": 10 }
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 5] BoardMapper.java — @Mapper 어노테이션의 핵심
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  @Mapper 어노테이션의 의미:
+  "이 인터페이스는 MyBatis Mapper야. 구현 클래스 없어도 돼. 내가 알아서 만들어줄게."
+  → MyBatis가 런타임 시 자동으로 구현 객체를 프록시(Proxy)로 생성
+
+  [ BoardMapper.java 코드 ]
+  @Mapper  // 생략 가능 (mybatis-context.xml에서 scan할 경우)
+  public interface BoardMapper {
+      public void insertBoard(Board dto) throws Exception;
+      public void updateBoard(Board dto) throws Exception;
+      public void deleteBoard(long num) throws Exception;
+      public void updateHit(long num) throws Exception;
+
+      public int dataCount(Map<String, Object> map);
+      public List<Board> listBoard(Map<String, Object> map);
+      public Board findById(long num);
+      public Board findByPrev(Map<String, Object> map);
+      public Board findByNext(Map<String, Object> map);
+  }
+
+  [ @Mapper의 3가지 규칙 ]
+  1. 인터페이스 메서드 이름 = bbsMapper.xml 의 SQL id 이름 (반드시 일치!)
+     예: 메서드 listBoard() → <select id="listBoard" ...>
+
+  2. namespace = 인터페이스 풀 패키지 경로
+     bbsMapper.xml 첫 줄: <mapper namespace="com.doit.app.mapper.BoardMapper">
+
+  3. mybatis-context.xml 에서 scan 설정 시 @Mapper 생략 가능
+     <mybatis-spring:scan base-package="com.doit.app.mapper"/>
+
+  [ @Repository 와의 비교 ]
+  @Mapper     → MyBatis 전용. 인터페이스만 있으면 됨.
+  @Repository → Spring 전용. SqlSession을 직접 사용하는 DAO 클래스에 붙임.
+                DB 예외를 DataAccessException으로 변환해주는 추가 기능 있음.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 6] jdbc.properties — DB 접속 정보 분리
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  파일 위치: src/main/resources/mybatis/jdbc.properties
+
+  jdbc.driverClass=oracle.jdbc.driver.OracleDriver
+  jdbc.uri=jdbc:oracle:thin:@//127.0.0.1:1521/xe
+  jdbc.username=scott
+  jdbc.password=tiger
+
+  왜 .properties 파일로 분리하나?
+  → DB 접속 정보(비밀번호 등)를 XML 파일에 직접 안 쓰고 별도 파일에 관리
+  → 운영 서버 배포 시 이 파일만 바꾸면 됨 (XML은 안 건드려도 됨)
+  → mybatis-context.xml 에서 ${jdbc.driverClass} 처럼 꺼내 씀
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 7] mybatis-context.xml — 핵심 빈 등록 5개
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  이 파일이 하는 일:
+  jdbc.properties 읽기 → DataSource → SqlSessionFactory → SqlSessionTemplate
+                                    → TransactionManager → TransactionTemplate
+  + Mapper 인터페이스 자동 등록
+
+  [ 1단계 ] jdbc.properties 불러오기
+  <context:property-placeholder location="classpath:/mybatis/jdbc.properties"/>
+  → 이 한 줄로 ${jdbc.driverClass} 같은 변수를 XML 안에서 쓸 수 있게 됨
+
+
+  [ 2단계 ] DataSource 등록 — DBCP2 커넥션 풀 (★ sp15 대비 업그레이드!)
+
+  sp15/sp14 방식 (커넥션 풀 없음):
+  <bean id="dataSource" class="org.springframework.jdbc.datasource.DriverManagerDataSource">
+      <property name="driverClassName" value="${jdbc.driverClass}"/>
+      ...
+  </bean>
+  → 매 요청마다 DB 연결 새로 만들고 끊음. 느리고 비효율적.
+
+  sp16 방식 (DBCP2 커넥션 풀):
+  <bean id="dataSource" class="org.apache.commons.dbcp2.BasicDataSource" destroy-method="clone">
+      <property name="driverClassName" value="${jdbc.driverClass}"/>
+      <property name="url"             value="${jdbc.uri}"/>
+      <property name="username"        value="${jdbc.username}"/>
+      <property name="password"        value="${jdbc.password}"/>
+
+      <property name="initialSize"     value="20"/>  ← 처음부터 커넥션 20개 만들어 놓음
+      <property name="maxTotal"        value="20"/>  ← 동시에 쓸 수 있는 최대 20개
+      <property name="maxIdle"         value="20"/>  ← 놀고 있는 커넥션 최대 20개 유지
+      <property name="minIdle"         value="20"/>  ← 놀고 있어도 최소 20개는 유지
+      <property name="maxWaitMillis"   value="10000"/> ← 10초 기다려도 없으면 에러
+      <property name="defaultAutoCommit" value="true"/>
+  </bean>
+
+  비유: DriverManagerDataSource = 택시를 매번 불러서 타고 다닌다
+        BasicDataSource(DBCP2)  = 회사 전용 차량 20대를 주차장에 항상 대기시킨다
+
+  커넥션 풀 설정값 정리:
+  ┌──────────────────┬──────────────────────────────────────────────────┐
+  │ 속성             │ 의미                                             │
+  ├──────────────────┼──────────────────────────────────────────────────┤
+  │ initialSize      │ 앱 시작 시 미리 만들 커넥션 수 (기본값=0)        │
+  │ maxTotal         │ 동시에 쓸 수 있는 최대 커넥션 수 (기본값=8)      │
+  │ maxIdle          │ 반납 시 풀에 유지할 최대 커넥션 수 (기본값=8)    │
+  │ minIdle          │ 항상 유지할 최소 커넥션 수 (기본값=0)            │
+  │ maxWaitMillis    │ 풀이 다 찼을 때 기다릴 최대 시간 (ms, -1=무한)  │
+  └──────────────────┴──────────────────────────────────────────────────┘
+
+
+  [ 3단계 ] SqlSessionFactory 등록
+  <bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+      <property name="dataSource"       ref="dataSource"/>
+      <property name="configLocation"   value="classpath:/mybatis/mybatis-config.xml"/>
+      <property name="mapperLocations"  value="classpath:/mybatis/mapper/**/*.xml"/>
+  </bean>
+  → MyBatis가 어떤 DB(DataSource)를 쓸지, 어디에 설정파일(config)이 있는지,
+    SQL XML 파일(mapper)이 어디 있는지 한꺼번에 알려줌
+
+
+  [ 4단계 ] SqlSessionTemplate 등록
+  <bean id="sqlSession" class="org.mybatis.spring.SqlSessionTemplate">
+      <constructor-arg index="0" ref="sqlSessionFactory"/>
+  </bean>
+  → SqlSession을 스레드 안전(Thread-safe)하게 사용할 수 있게 감싼 것
+  → @Repository DAO에서 @Autowired로 주입 받아 사용
+
+
+  [ 5단계 ] 트랜잭션 관리자 등록
+  <bean id="transactionManager"
+        class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+      <property name="dataSource" ref="dataSource"/>
+  </bean>
+
+  <bean id="transactionTemplate"
+        class="org.springframework.transaction.support.TransactionTemplate">
+      <property name="transactionManager" ref="transactionManager"/>
+  </bean>
+  → 트랜잭션 = 여러 SQL을 하나의 작업으로 묶기 (전부 성공 or 전부 롤백)
+  → TransactionManager: 트랜잭션 시작/커밋/롤백 담당
+  → TransactionTemplate: 코드에서 편리하게 트랜잭션 처리
+
+
+  [ 6단계 ] Mapper 자동 등록 (scan)
+  <mybatis-spring:scan base-package="com.doit.app.mapper"/>
+  → com.doit.app.mapper 패키지 아래 모든 인터페이스를 Mapper로 등록
+  → 이 설정이 있으면 @Mapper 어노테이션 생략 가능
+
+
+  [ <property> name 속성의 진실 — setter 이름 기반 ]
+  중요! name="dataSource" 는 필드 이름이 아니라 setter 메서드 이름 기반!
+  setDataSource()  → name="dataSource"  (set 제거 + 첫글자 소문자)
+  setSqlSessionFactory() → name="sqlSessionFactory"
+  → 이 규칙은 JavaBeans 스펙. 스프링이 이 규칙을 따름.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 8] mybatis-config.xml — MyBatis 동작 세팅
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  MyBatis 자체의 동작 방식을 결정하는 설정 파일.
+  "MyBatis 소속 직원에게 전반적인 가이드라인 제공"
+
+  [ settings 영역 ]
+  <settings>
+      <setting name="cacheEnabled"         value="false"/>
+      <setting name="useGeneratedKeys"     value="true"/>
+      <setting name="defaultExecutorType"  value="REUSE"/>
+      <setting name="logImpl"              value="STDOUT_LOGGING"/>
+  </settings>
+
+  각 설정의 의미:
+  ┌──────────────────────┬──────────────────────────────────────────────────────────┐
+  │ 설정                 │ 의미                                                     │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ cacheEnabled=false   │ MyBatis 2차 캐시 끔                                      │
+  │                      │ → 켜면 DB 데이터 바뀌어도 예전 데이터 보여줄 수 있어서   │
+  │                      │   실무에서 대부분 false로 시작                            │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ useGeneratedKeys=true│ DB 자동생성 키(시퀀스 등)를 자바 객체에 자동으로 채워줌  │
+  │                      │ → INSERT 후 방금 발급된 BBS_SEQ 번호를 바로 알 수 있음   │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ defaultExecutorType  │ SQL 실행 방식 설정                                       │
+  │ =REUSE               │ → REUSE: PreparedStatement 재사용 → 성능 향상           │
+  │                      │   (같은 SQL을 매번 새로 파싱하지 않고 재활용)            │
+  ├──────────────────────┼──────────────────────────────────────────────────────────┤
+  │ logImpl              │ SQL 로그 출력 방식                                       │
+  │ =STDOUT_LOGGING      │ → 콘솔에 실행된 SQL 쿼리 직접 출력                       │
+  │                      │ → 라이브러리 설치 없이 바로 확인 가능 (학습용 최적)      │
+  └──────────────────────┴──────────────────────────────────────────────────────────┘
+
+  [ typeAliases 영역 ]
+  <typeAliases>
+      <typeAlias alias="hashMap" type="java.util.HashMap"/>
+      <typeAlias alias="map"     type="java.util.map"/>
+  </typeAliases>
+  → XML Mapper에서 resultType="java.util.HashMap" 대신
+    resultType="hashMap" 처럼 짧게 쓸 수 있게 별명 등록
+
+  [ mappers 영역 주석 처리된 이유 ]
+  보통 스프링 연동 환경에서는 mybatis-context.xml의 SqlSessionFactoryBean에서
+  mapperLocations 로 한꺼번에 매퍼 XML 위치를 지정하기 때문에
+  mybatis-config.xml 에서 따로 등록하지 않아도 됨.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 9] bbsMapper.xml — SQL 작성 위치와 규칙
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  위치: src/main/resources/mybatis/mapper/bbsMapper.xml
+
+  기본 구조:
+  <mapper namespace="com.doit.app.mapper.BoardMapper">
+      <!-- 여기에 SQL 작성 -->
+  </mapper>
+
+  핵심 규칙:
+  namespace = BoardMapper 인터페이스의 완전한 패키지 경로
+  SQL id    = BoardMapper 인터페이스의 메서드 이름과 반드시 일치
+
+  [ 작성될 SQL 목록 ]
+
+  1) 게시글 등록 (insertBoard)
+  <insert id="insertBoard" parameterType="com.doit.app.domain.Board">
+      INSERT INTO BBS(NUM, NAME, PWD, SUBJECT, CONTENT, IPADDR, HITCOUNT, REG_DATE)
+      VALUES(BBS_SEQ.NEXTVAL, #{name}, #{pwd}, #{subject}, #{content},
+             #{ipAddr}, 0, SYSDATE)
+  </insert>
+
+  2) 게시글 수정 (updateBoard)
+  <update id="updateBoard" parameterType="com.doit.app.domain.Board">
+      UPDATE BBS
+      SET NAME=#{name}, PWD=#{pwd}, SUBJECT=#{subject}, CONTENT=#{content}
+      WHERE NUM=#{num}
+  </update>
+
+  3) 게시글 삭제 (deleteBoard)
+  <delete id="deleteBoard" parameterType="long">
+      DELETE FROM BBS WHERE NUM=#{num}
+  </delete>
+
+  4) 조회수 증가 (updateHit)
+  <update id="updateHit" parameterType="long">
+      UPDATE BBS SET HITCOUNT = HITCOUNT + 1 WHERE NUM=#{num}
+  </update>
+
+  5) 전체 게시글 수 (dataCount) — 검색 포함
+  <select id="dataCount" parameterType="map" resultType="int">
+      SELECT NVL(COUNT(NUM), 0)
+      FROM BBS
+      <where>
+          <if test="searchType == 'all'">
+              (INSTR(SUBJECT, #{keyword}) > 0 OR INSTR(CONTENT, #{keyword}) > 0)
+          </if>
+          <if test="searchType == 'date'">
+              (TO_CHAR(REG_DATE,'YYYY-MM-DD')=#{keyword}
+               OR TO_CHAR(REG_DATE,'YYYYMMDD')=#{keyword})
+          </if>
+          <if test="searchType == 'name'">
+              (INSTR(NAME, #{keyword}) > 0)
+          </if>
+      </where>
+  </select>
+
+  6) 게시글 목록 (listBoard) — 페이징 + 검색
+  <select id="listBoard" parameterType="map" resultType="com.doit.app.domain.Board">
+      SELECT NUM, NAME, SUBJECT, HITCOUNT, TO_CHAR(REG_DATE,'YYYY-MM-DD') AS REG_DATE
+      FROM BBS
+      <where>
+          <if test="searchType == 'all'">
+              (INSTR(SUBJECT, #{keyword}) > 0 OR INSTR(CONTENT, #{keyword}) > 0)
+          </if>
+          <if test="searchType == 'date'">
+              (TO_CHAR(REG_DATE,'YYYY-MM-DD')=#{keyword}
+               OR TO_CHAR(REG_DATE,'YYYYMMDD')=#{keyword})
+          </if>
+          <if test="searchType == 'name'">
+              (INSTR(NAME, #{keyword}) > 0)
+          </if>
+      </where>
+      ORDER BY NUM DESC
+      OFFSET #{offset} ROWS FETCH FIRST #{size} ROWS ONLY
+  </select>
+
+  7) 상세 조회 (findById)
+  <select id="findById" parameterType="long" resultType="com.doit.app.domain.Board">
+      SELECT NUM, NAME, PWD, SUBJECT, CONTENT, IPADDR, HITCOUNT, REG_DATE
+      FROM BBS
+      WHERE NUM=#{num}
+  </select>
+
+  8) 이전글 (findByPrev) — 현재 글보다 번호가 큰 것 중 가장 작은 것
+  <select id="findByPrev" parameterType="map" resultType="com.doit.app.domain.Board">
+      SELECT NUM, SUBJECT FROM BBS
+      WHERE (NUM > #{num})
+      ORDER BY NUM ASC
+      FETCH FIRST 1 ROWS ONLY
+  </select>
+
+  9) 다음글 (findByNext) — 현재 글보다 번호가 작은 것 중 가장 큰 것
+  <select id="findByNext" parameterType="map" resultType="com.doit.app.domain.Board">
+      SELECT NUM, SUBJECT FROM BBS
+      WHERE (NUM < #{num})
+      ORDER BY NUM DESC
+      FETCH FIRST 1 ROWS ONLY
+  </select>
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 10] 페이징(Paging) 원리 — OFFSET & FETCH FIRST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Oracle 12c 이상에서 사용하는 페이징 문법:
+
+  SELECT ...
+  FROM BBS
+  ORDER BY NUM DESC
+  OFFSET #{offset} ROWS FETCH FIRST #{size} ROWS ONLY
+
+  - OFFSET n ROWS     : 앞에서 n개 건너뜀
+  - FETCH FIRST n ROWS ONLY : 그 다음부터 n개만 가져옴
+
+  [ 페이지별 offset 계산 공식 ]
+  offset = (현재 페이지 번호 - 1) * size
+
+  예시 (한 페이지에 10개 표시):
+  ┌────────────┬────────┬─────────────────────────────────────┐
+  │ 페이지     │ offset │ 결과                                │
+  ├────────────┼────────┼─────────────────────────────────────┤
+  │ 1페이지    │   0    │ 1~10번째 글 (0개 건너뛰고 10개)     │
+  │ 2페이지    │  10    │ 11~20번째 글 (10개 건너뛰고 10개)   │
+  │ 3페이지    │  20    │ 21~30번째 글 (20개 건너뛰고 10개)   │
+  └────────────┴────────┴─────────────────────────────────────┘
+
+  비유: 책에서 11페이지부터 보고 싶으면, 앞 10페이지를 넘기고(OFFSET)
+        다음 10페이지를 읽는 것(FETCH FIRST)
+
+  [ offset 계산은 누가 하나? ]
+  → Service 또는 DAO에서 offset 값을 계산해서 Map에 담아 Mapper에 넘김
+  → SQL에서 직접 계산하면 안 됨 (일반적으로 자바에서 계산)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 11] 검색 기능 — INSTR 함수 활용
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  검색 타입 3가지:
+  ┌──────────────┬─────────────────────────────────────────────────────┐
+  │ 검색 타입    │ SQL 조건                                            │
+  ├──────────────┼─────────────────────────────────────────────────────┤
+  │ 전체 (all)   │ INSTR(SUBJECT, '키워드') > 0                       │
+  │              │ OR INSTR(CONTENT, '키워드') > 0                     │
+  │              │ → 제목 또는 내용에 키워드가 포함된 글               │
+  ├──────────────┼─────────────────────────────────────────────────────┤
+  │ 작성자 (name)│ INSTR(NAME, '키워드') > 0                          │
+  │              │ → 이름에 키워드가 포함된 글                         │
+  ├──────────────┼─────────────────────────────────────────────────────┤
+  │ 작성일 (date)│ TO_CHAR(REG_DATE,'YYYY-MM-DD') = '2026-05-18'      │
+  │              │ OR TO_CHAR(REG_DATE,'YYYYMMDD') = '20260518'        │
+  │              │ → 두 형식 모두 허용 (입력 편의)                     │
+  └──────────────┴─────────────────────────────────────────────────────┘
+
+  INSTR 함수: INSTR(문자열, 찾을값) > 0
+  → 문자열 안에 찾을값이 있으면 위치(숫자) 반환, 없으면 0 반환
+  → > 0 이면 포함된 것 (LIKE '%키워드%' 와 같은 의미지만 Oracle에서 더 안정적)
+
+  [ MyBatis <if> 동적 SQL ]
+  <where>
+      <if test="searchType == 'all'">...</if>
+      <if test="searchType == 'name'">...</if>
+      <if test="searchType == 'date'">...</if>
+  </where>
+  → 검색 타입에 따라 WHERE 조건이 동적으로 바뀜
+  → searchType이 없으면 WHERE 절 자체가 생략됨 (<where> 태그의 역할)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 12] web.xml — 3가지 핵심 설정
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [ 1 ] ContextLoaderListener — "Boot Context"
+  <listener>
+      <listener-class>org.springframework.web.context.ContextLoaderListener</listener-class>
+  </listener>
+  → root-context.xml 을 읽어서 서비스/DAO/DB 관련 빈을 서버 시작 시 미리 등록
+  → 모든 서블릿이 공유하는 전역 컨테이너
+  → 비유: 회사 전체가 쓰는 공용 창고 문 여는 열쇠
+
+  [ 2 ] DispatcherServlet + load-on-startup
+  <servlet>
+      <servlet-name>appServlet</servlet-name>
+      <servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+      <init-param>
+          <param-name>contextConfigLocation</param-name>
+          <param-value>/WEB-INF/spring/appServlet/servlet-context.xml</param-value>
+      </init-param>
+      <load-on-startup>1</load-on-startup>
+  </servlet>
+
+  load-on-startup=1 의 의미:
+  → 서버 시작 시 1번 우선순위로 서블릿을 미리 초기화
+  → 없으면 첫 요청 올 때 초기화 → 첫 사용자가 느림
+  → 숫자가 작을수록 먼저 초기화 (1이 제일 먼저)
+
+  [ 3 ] CharacterEncodingFilter — 한글 깨짐 방지
+  <filter>
+      <filter-class>org.springframework.web.filter.CharacterEncodingFilter</filter-class>
+      <init-param>
+          <param-name>encoding</param-name>
+          <param-value>UTF-8</param-value>
+      </init-param>
+      <init-param>
+          <param-name>forceEncoding</param-name>
+          <param-value>true</param-value>
+      </init-param>
+  </filter>
+  <filter-mapping>
+      <url-pattern>/*</url-pattern>   ← 모든 요청에 적용
+  </filter-mapping>
+  → POST 요청으로 한글 전송 시 깨지지 않도록 UTF-8로 강제 변환
+  → forceEncoding=true: 이미 인코딩 설정이 있어도 강제로 UTF-8 적용
+
+  [ 3가지 처리 순서 ]
+  클라이언트 요청
+      → CharacterEncodingFilter (한글 처리)
+      → ContextLoaderListener (서비스/DAO 빈 공유)
+      → DispatcherServlet (요청 처리)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 13] root-context.xml vs servlet-context.xml 차이
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [ root-context.xml ]
+  → DB 연결, Service, DAO 등 웹과 무관한 공통 빈 등록
+  → mybatis-context.xml 을 import로 불러옴
+  → ContextLoaderListener 가 읽음
+
+  <import resource="classpath://mybatis/mybatis-context.xml"/>
+  ※ classpath = src/main/resources 까지의 경로
+
+  [ servlet-context.xml ]
+  → Controller, ViewResolver, 정적 자원 설정 등 웹 관련 빈 등록
+  → DispatcherServlet 이 읽음
+
+  <annotation-driven/>                                      ← @Controller 방식 활성화
+  <resources mapping="/resources/**" location="/resources/"/> ← CSS/JS/이미지 경로
+  <beans:bean class="InternalResourceViewResolver">
+      <beans:property name="prefix" value="/WEB-INF/views/"/>
+      <beans:property name="suffix" value=".jsp"/>
+  </beans:bean>
+  <context:component-scan base-package="com.doit.app"/>    ← 컨트롤러 자동 등록
+
+  ViewResolver 동작:
+  Controller 에서 return "BbsList" → prefix + BbsList + suffix → /WEB-INF/views/BbsList.jsp
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  root-context.xml           servlet-context.xml                     │
+  │  ─────────────────          ──────────────────────                  │
+  │  DataSource                 @annotation-driven                      │
+  │  SqlSessionFactory          component-scan                          │
+  │  SqlSessionTemplate         InternalResourceViewResolver             │
+  │  TransactionManager         resources (정적파일)                    │
+  │  Mapper scan                                                         │
+  └──────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [STEP 14] pom.xml — 새로 추가된 라이브러리
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  sp14/sp15 vs sp16 주요 차이:
+
+  ┌─────────────────────────┬────────────────────────────────────────────┐
+  │ 라이브러리              │ 역할                                       │
+  ├─────────────────────────┼────────────────────────────────────────────┤
+  │ mybatis                 │ MyBatis 프레임워크 본체                    │
+  │ mybatis-spring          │ MyBatis ↔ Spring 연동 모듈                │
+  │ commons-dbcp2           │ DBCP2 커넥션 풀 (BasicDataSource)          │
+  │ commons-pool2           │ DBCP2 내부적으로 사용하는 풀 라이브러리    │
+  │ spring-jdbc             │ Spring JDBC 지원 (DataSourceTransactionMgr)│
+  │ spring-tx               │ Spring 트랜잭션 지원                       │
+  │ ojdbc11                 │ Oracle JDBC 드라이버                       │
+  │ log4jdbc                │ MyBatis SQL 로그 출력용                    │
+  │ commons-fileupload      │ 파일 업로드 (나중에 사용)                  │
+  │ jackson-databind 등     │ JSON 처리 (Ajax, REST API용)               │
+  │ tiles-extras            │ 레이아웃 템플릿 (나중에 사용)              │
+  │ spring-security-*       │ 보안/로그인 처리 (나중에 사용)             │
+  └─────────────────────────┴────────────────────────────────────────────┘
+
+  pom.xml 사용법:
+  1. MVNrepository (mvnrepository.com) 에서 라이브러리 검색
+  2. 원하는 버전의 XML 코드 복사
+  3. pom.xml 의 <dependencies> 태그 안에 붙여넣기
+  4. Maven이 자동으로 jar 다운로드 및 적용
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 전체 요청 흐름 정리 — 게시글 목록 조회 예시
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  브라우저: GET http://localhost:8080/app/board/list.action
+                                             ↓
+  [Filter] CharacterEncodingFilter           → 한글 인코딩 처리
+                                             ↓
+  [DispatcherServlet]                        → URL 패턴 분석
+                                             ↓
+  [HandlerMapping]                           → /board/list.action → BoardController
+                                             ↓
+  [BoardController]
+      @RequestMapping("/board/list.action")
+      public String list(Model model, @RequestParam Map<String,Object> map) {
+          int total = boardService.dataCount(map);     // Service 호출
+          List<Board> list = boardService.listBoard(map);
+          model.addAttribute("list", list);
+          model.addAttribute("total", total);
+          return "BbsList";                            // View 이름 반환
+      }
+                                             ↓
+  [BoardServiceImpl]
+      public List<Board> listBoard(Map<String,Object> map) {
+          // offset 계산
+          int offset = (page - 1) * size;
+          map.put("offset", offset);
+          return boardMapper.listBoard(map);           // Mapper 호출
+      }
+                                             ↓
+  [BoardMapper 인터페이스]
+      List<Board> listBoard(Map<String,Object> map);  // 메서드 호출
+                                             ↓
+  [bbsMapper.xml]
+      <select id="listBoard" ...>                      // SQL 실행
+          SELECT ... FROM BBS ORDER BY NUM DESC
+          OFFSET #{offset} ROWS FETCH FIRST #{size} ROWS ONLY
+      </select>
+                                             ↓
+  [Oracle DB]                               → 결과 반환
+                                             ↓
+  [ViewResolver]  "BbsList" → /WEB-INF/views/BbsList.jsp
+                                             ↓
+  [BbsList.jsp]                             → 화면에 목록 출력
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ sp14 → sp15 → sp16 비교 총정리
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌──────────────────────┬──────────────────┬──────────────────┬────────────────────────────┐
+  │ 항목                 │ sp14             │ sp15             │ sp16                       │
+  ├──────────────────────┼──────────────────┼──────────────────┼────────────────────────────┤
+  │ 컨트롤러 등록        │ XML에 bean 직접  │ @Controller      │ @Controller                │
+  │ 의존성 주입          │ XML property     │ @Autowired       │ @Autowired                 │
+  │ 계층 구조            │ Controller→DAO   │ Controller→DAO   │ Controller→Service→Mapper  │
+  │ DB 처리              │ JDBC 직접        │ JDBC 직접        │ MyBatis (@Mapper)          │
+  │ 커넥션 풀            │ DriverManager    │ DriverManager    │ DBCP2 (BasicDataSource)    │
+  │ 트랜잭션             │ 없음             │ 없음             │ DataSourceTransactionMgr   │
+  │ SQL 작성 위치        │ DAO 클래스 안    │ DAO 클래스 안    │ bbsMapper.xml (분리)       │
+  │ 페이징               │ 없음             │ 없음             │ OFFSET/FETCH FIRST         │
+  │ 검색                 │ 없음             │ 없음             │ INSTR + 동적 SQL (<if>)    │
+  └──────────────────────┴──────────────────┴──────────────────┴────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 핵심 5줄 요약
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. 3계층 구조 Controller → Service → Mapper 로 역할 분리
+  2. @Mapper 인터페이스 = 구현 클래스 없이 메서드 이름으로 SQL 자동 연결
+  3. DBCP2(BasicDataSource) = 커넥션 풀로 DB 연결을 미리 만들어 재사용
+  4. 페이징 = OFFSET(건너뛸 수) + FETCH FIRST(가져올 수) / offset = (페이지-1) * size
+  5. 검색 = INSTR() 함수 + MyBatis <if> 동적 SQL 조합
