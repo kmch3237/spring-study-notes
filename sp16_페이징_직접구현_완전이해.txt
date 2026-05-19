@@ -1,0 +1,503 @@
+■■■ SP16 - 페이징 완전 이해 & 직접 구현 (PaginateUtil 없이도 짤 수 있게) ■■■
+작성일: 2026-05-19
+
+강사님 말씀: "PaginateUtil 안 보고 다른 구조로도 짤 줄 알아야 취업할 수 있다."
+이 파일의 목표: 페이징 로직을 외우는 게 아니라 '왜 그렇게 되는지' 이해하기.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ STEP 0 — 페이징이란 뭔가? (진짜 기초부터)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  게시글이 350개라고 상상해보자.
+  전부 한 화면에 보여주면? → 스크롤이 건물만큼 길어짐. 느려짐.
+
+  그래서 '10개씩 잘라서' 보여주는 것 = 페이징.
+
+  페이징에서 우리가 계산해야 할 것들:
+
+  ① 전체 몇 페이지인가?          → totalPage 계산
+  ② 지금 페이지의 글을 어디서 자르나? → offset 계산 (SQL용)
+  ③ 페이지 번호 버튼을 어떻게 그리나? → 버튼 HTML 생성
+
+  이 세 가지만 이해하면 페이징은 끝난다.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ STEP 1 — totalPage: 전체 페이지 수 계산
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  필요한 재료:
+  - dataCount = 전체 게시글 수 (DB에서 COUNT로 가져옴)
+  - size      = 한 페이지에 보여줄 글 수 (보통 10, 코드에서 상수로 정함)
+
+  ─────────────────────────────────────────────────────
+  공식 A: Math.ceil 사용 (직관적)
+  ─────────────────────────────────────────────────────
+  int totalPage = (int) Math.ceil((double) dataCount / size);
+
+  왜 (double)을 붙이나?
+  자바에서 int / int = int (소수점 버림)
+  22 / 10 = 2  → 틀림! (3페이지 필요)
+  (double)22 / 10 = 2.2 → Math.ceil(2.2) = 3 → 맞음!
+
+  ─────────────────────────────────────────────────────
+  공식 B: 나머지 연산 사용 (PaginateUtil 방식)
+  ─────────────────────────────────────────────────────
+  int totalPage = dataCount / size + (dataCount % size > 0 ? 1 : 0);
+
+  원리:
+  dataCount / size      → 완전히 채워지는 페이지 수 (소수점 버림)
+  dataCount % size > 0  → 나머지가 있으면 마지막 페이지 하나 더 필요
+
+  손으로 계산해보기:
+  ┌────────────┬──────┬──────────────────────┬───────────────────┬────────┐
+  │ dataCount  │ size │ dataCount/size (몫)   │ dataCount%size>0? │ 결과   │
+  ├────────────┼──────┼──────────────────────┼───────────────────┼────────┤
+  │    100     │  10  │ 10                   │ 0>0? NO → +0      │  10    │
+  │    103     │  10  │ 10                   │ 3>0? YES → +1     │  11    │
+  │     22     │  10  │  2                   │ 2>0? YES → +1     │   3    │
+  │     10     │  10  │  1                   │ 0>0? NO → +0      │   1    │
+  └────────────┴──────┴──────────────────────┴───────────────────┴────────┘
+
+  두 공식은 항상 같은 결과. 어떤 걸 써도 됨.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ STEP 2 — offset: SQL에 넘길 '건너뛸 줄 수' 계산
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Oracle SQL:
+  ORDER BY NUM DESC
+  OFFSET #{offset} ROWS FETCH FIRST #{size} ROWS ONLY
+
+  OFFSET = "앞에서 몇 줄을 건너뛰고 시작할까?"
+
+  공식: offset = (currentPage - 1) * size
+
+  손으로 계산해보기 (size = 10):
+  ┌──────────────┬────────────────────────────┬────────┬──────────────────────┐
+  │ currentPage  │ 계산식                     │ offset │ 가져오는 행          │
+  ├──────────────┼────────────────────────────┼────────┼──────────────────────┤
+  │      1       │ (1-1) * 10 = 0             │   0    │ 1번째 ~ 10번째       │
+  │      2       │ (2-1) * 10 = 10            │  10    │ 11번째 ~ 20번째      │
+  │      3       │ (3-1) * 10 = 20            │  20    │ 21번째 ~ 30번째      │
+  │     13       │ (13-1) * 10 = 120          │  120   │ 121번째 ~ 130번째    │
+  └──────────────┴────────────────────────────┴────────┴──────────────────────┘
+
+  비유: 책에서 31페이지부터 보고 싶다면,
+        앞 30페이지를 넘기고(OFFSET 30) 다음 10페이지를 읽는다(FETCH FIRST 10).
+
+  이걸 코드에서 어디서 계산하나?
+  → ServiceImpl 의 listBoard() 메서드 안에서!
+
+  @Override
+  public List<Board> listBoard(Map<String, Object> map) {
+      int page = (int) map.get("page");
+      int size = (int) map.get("size");
+      int offset = (page - 1) * size;     ← 여기서 계산!
+      map.put("offset", offset);           ← Map에 추가
+      return mapper.listBoard(map);        ← SQL로 전달
+  }
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ STEP 3 — 페이지 버튼 HTML 만들기 (핵심 알고리즘)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  최종 목표: 아래처럼 생긴 버튼 HTML을 자바 코드로 만들기
+
+  ≪ < 11 12 13 [14] 15 16 17 18 19 20 > ≫
+            ↑                ↑
+       현재가 14페이지    현재 페이지는 링크 없음(<span>)
+
+  이걸 만들려면 3가지를 알아야 한다:
+  ① 시작 페이지 번호 (11)
+  ② 끝 페이지 번호 (20)
+  ③ ≪ < > ≫ 를 언제 보여주나
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ STEP 3-1 — 블록 방식: 시작/끝 페이지 계산법 2가지
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  "블록 방식"이란?
+  1~10, 11~20, 21~30 처럼 10개씩 묶어서 한 번에 보여주는 방식.
+
+  ─────────────────────────────────────────────────────
+  방법 A: startPage / endPage 직접 계산 (직관적)
+  ─────────────────────────────────────────────────────
+
+  int startPage = ((currentPage - 1) / numPerBlock) * numPerBlock + 1;
+  int endPage   = Math.min(startPage + numPerBlock - 1, totalPage);
+
+  [ startPage 공식 분해 ]
+
+  (currentPage - 1) / numPerBlock  → 내가 몇 번째 블록(0부터 시작)?
+  * numPerBlock                    → 그 블록의 시작 직전 번호
+  + 1                              → 실제 시작 번호
+
+  손으로 계산해보기 (numPerBlock = 10):
+  ┌──────────┬──────────────────────────┬───────────┬──────────────────────┐
+  │currentPage│ (cp-1)/10 * 10 + 1      │ startPage │ endPage(totalPage35) │
+  ├──────────┼──────────────────────────┼───────────┼──────────────────────┤
+  │    1     │ (0)/10 * 10 + 1 = 1      │     1     │ min(10, 35) = 10     │
+  │    7     │ (6)/10 * 10 + 1 = 1      │     1     │ min(10, 35) = 10     │
+  │   10     │ (9)/10 * 10 + 1 = 1      │     1     │ min(10, 35) = 10     │
+  │   11     │ (10)/10 * 10 + 1 = 11    │    11     │ min(20, 35) = 20     │
+  │   20     │ (19)/10 * 10 + 1 = 11    │    11     │ min(20, 35) = 20     │
+  │   21     │ (20)/10 * 10 + 1 = 21    │    21     │ min(30, 35) = 30     │
+  │   35     │ (34)/10 * 10 + 1 = 31    │    31     │ min(40, 35) = 35     │
+  └──────────┴──────────────────────────┴───────────┴──────────────────────┘
+
+  ★ 이 방법의 장점: 직관적이고 10, 20 경계값 보정 필요 없음!
+    (currentPage - 1) 때문에 경계값 문제가 자동 해결됨.
+
+  ─────────────────────────────────────────────────────
+  방법 B: currentPageSetup(기준점) 계산 (PaginateUtil 방식)
+  ─────────────────────────────────────────────────────
+
+  int currentPageSetup = (currentPage / numPerBlock) * numPerBlock;
+  if (currentPage % numPerBlock == 0)
+      currentPageSetup -= numPerBlock;
+
+  int startPage = currentPageSetup + 1;
+  int endPage   = currentPageSetup + numPerBlock;
+  // (endPage > totalPage 이면 totalPage로 자름 → while 조건에서 처리)
+
+  [ currentPageSetup 공식 분해 ]
+
+  currentPage / numPerBlock  → 정수 나눗셈 (소수점 버림)
+  * numPerBlock              → 블록의 시작 직전 번호 (= 기준점)
+
+  ★ 문제: 10, 20, 30 같은 경계값에서 틀린 결과가 나옴!
+  10 / 10 = 1, 1 * 10 = 10  → 기준점이 10이 되어 11~20 블록으로 잘못 분류!
+  그래서 보정 필요:
+  if (currentPage % numPerBlock == 0)
+      currentPageSetup -= numPerBlock;   // 10-10=0, 20-10=10, 30-10=20
+
+  손으로 계산해보기 (numPerBlock = 10):
+  ┌──────────┬───────────────────┬──────────────┬───────────┬───────────┐
+  │currentPage│ cp/10 * 10        │ 보정 후       │ startPage │ endPage  │
+  ├──────────┼───────────────────┼──────────────┼───────────┼───────────┤
+  │    1     │  0/10*10=0        │     0        │     1     │    10     │
+  │    7     │  0/10*10=0        │     0        │     1     │    10     │
+  │   10     │ 10/10*10=10 →보정 │     0        │     1     │    10     │
+  │   11     │ 11/10*10=10       │    10        │    11     │    20     │
+  │   20     │ 20/10*10=20 →보정 │    10        │    11     │    20     │
+  │   21     │ 21/10*10=20       │    20        │    21     │    30     │
+  └──────────┴───────────────────┴──────────────┴───────────┴───────────┘
+
+  ★ 두 방법(A, B)의 결과는 동일.
+    취업용으로는 방법 A가 더 이해하기 쉽고 직관적.
+    PaginateUtil은 방법 B를 사용함.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ STEP 3-2 — ≪ < > ≫ 버튼 조건 정리
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ≪ (맨 처음으로)   : startPage > 1 일 때  → 1페이지로 이동
+  <  (이전 블록으로) : startPage > 1 일 때  → startPage - 1 로 이동
+  >  (다음 블록으로) : endPage < totalPage 일 때  → endPage + 1 로 이동
+  ≫ (맨 마지막으로) : endPage < totalPage 일 때  → totalPage 로 이동
+
+  PaginateUtil 방식 (방법 B 기준):
+  < 이동 대상: currentPage - numPerBlock  (현재에서 -10)
+  > 이동 대상: currentPage + numPerBlock  (현재에서 +10, totalPage 초과 금지)
+
+  직관적 방식 (방법 A 기준):
+  < 이동 대상: startPage - 1  (현재 블록 시작 직전 페이지)
+  > 이동 대상: endPage + 1    (현재 블록 끝 다음 페이지)
+
+  두 방식 결과 비교 (현재 14페이지, 블록 11~20):
+  < 버튼 이동 대상:
+    방법 A: startPage - 1 = 11 - 1 = 10
+    방법 B: currentPage - 10 = 14 - 10 = 4
+  → 다름! 어떤 게 더 자연스러운지는 서비스 설계 방향에 따라 다름.
+    (방법 A: 이전 블록의 마지막 페이지로 / 방법 B: 현재에서 10 뒤로)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ STEP 4 — PaginateUtil 없이 직접 짜는 구조 3가지
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  구조는 다르게 짤 수 있다는 게 핵심.
+  "외우는 게 아니라, 원리를 알고 상황에 맞게 선택하는 것"
+
+  ─────────────────────────────────────────────────────
+  구조 1: JSP에서 직접 계산 (가장 단순)
+  ─────────────────────────────────────────────────────
+
+  Controller에서는 total, page, size 만 넘기고
+  JSP JSTL 에서 직접 계산하는 방식.
+
+  [Controller]
+  model.addAttribute("total",  total);    // 예: 105
+  model.addAttribute("page",   page);     // 예: 3
+  model.addAttribute("size",   size);     // 예: 10
+
+  [JSP — JSTL로 페이지 버튼 직접 그리기]
+  <c:set var="totalPage" value="${(total + size - 1) / size}"/>
+  <%-- 나눗셈 올림: (105 + 10 - 1) / 10 = 114/10 = 11 (JSTL은 실수 나눗셈) --%>
+
+  <c:set var="blockSize" value="10"/>
+  <c:set var="startPage" value="${(page - 1) / blockSize * blockSize + 1}"/>
+  <c:set var="endPage"   value="${startPage + blockSize - 1 > totalPage
+                                  ? totalPage : startPage + blockSize - 1}"/>
+
+  <%-- ≪ < 이전 버튼 --%>
+  <c:if test="${startPage > 1}">
+      <a href="list.action?page=1">≪</a>
+      <a href="list.action?page=${startPage - 1}"><</a>
+  </c:if>
+
+  <%-- 페이지 번호들 --%>
+  <c:forEach var="i" begin="${startPage}" end="${endPage}">
+      <c:choose>
+          <c:when test="${i == page}">
+              <span>[${i}]</span>
+          </c:when>
+          <c:otherwise>
+              <a href="list.action?page=${i}">${i}</a>
+          </c:otherwise>
+      </c:choose>
+  </c:forEach>
+
+  <%-- > ≫ 다음 버튼 --%>
+  <c:if test="${endPage < totalPage}">
+      <a href="list.action?page=${endPage + 1}">></a>
+      <a href="list.action?page=${totalPage}">≫</a>
+  </c:if>
+
+  장점: 간단, 설정 파일 없음
+  단점: 검색 조건이 많으면 JSP가 복잡해짐
+
+
+  ─────────────────────────────────────────────────────
+  구조 2: Controller에서 계산해서 Model로 넘기기
+  ─────────────────────────────────────────────────────
+
+  [Controller]
+  int totalPage  = (int) Math.ceil((double) total / size);
+  int blockSize  = 10;
+  int startPage  = ((page - 1) / blockSize) * blockSize + 1;
+  int endPage    = Math.min(startPage + blockSize - 1, totalPage);
+
+  model.addAttribute("totalPage",  totalPage);
+  model.addAttribute("startPage",  startPage);
+  model.addAttribute("endPage",    endPage);
+  // ... 나머지도 전달
+
+  [JSP — 받아서 그리기만 하면 됨]
+  <c:if test="${startPage > 1}">
+      <a href="list.action?page=1">≪</a>
+      <a href="list.action?page=${startPage - 1}"><</a>
+  </c:if>
+
+  <c:forEach var="i" begin="${startPage}" end="${endPage}">
+      <c:choose>
+          <c:when test="${i == page}"><span>[${i}]</span></c:when>
+          <c:otherwise><a href="list.action?page=${i}">${i}</a></c:otherwise>
+      </c:choose>
+  </c:forEach>
+
+  <c:if test="${endPage < totalPage}">
+      <a href="list.action?page=${endPage + 1}">></a>
+      <a href="list.action?page=${totalPage}">≫</a>
+  </c:if>
+
+  장점: Controller에서 계산 로직 관리, JSP는 단순
+  단점: 페이징이 필요한 Controller마다 같은 코드 반복
+
+
+  ─────────────────────────────────────────────────────
+  구조 3: 별도 PageInfo DTO 클래스로 분리 (실무형)
+  ─────────────────────────────────────────────────────
+
+  페이징에 필요한 값들을 담는 클래스를 직접 만든다.
+  PaginateUtil이 HTML을 반환하는 대신,
+  이 방식은 숫자 데이터만 담고 HTML은 JSP가 그린다.
+
+  [PageInfo.java — 직접 만드는 DTO]
+  public class PageInfo {
+      private int page;        // 현재 페이지
+      private int size;        // 한 페이지 글 수
+      private int total;       // 전체 글 수
+      private int totalPage;   // 전체 페이지 수
+      private int startPage;   // 현재 블록 시작 페이지
+      private int endPage;     // 현재 블록 끝 페이지
+      private int blockSize;   // 블록 크기 (보통 10)
+
+      // 생성자에서 자동 계산
+      public PageInfo(int page, int size, int total) {
+          this.page  = page;
+          this.size  = size;
+          this.total = total;
+          this.blockSize  = 10;
+          this.totalPage  = (int) Math.ceil((double) total / size);
+          this.startPage  = ((page - 1) / blockSize) * blockSize + 1;
+          this.endPage    = Math.min(startPage + blockSize - 1, totalPage);
+      }
+
+      // getter 전부 있어야 함
+  }
+
+  [Controller]
+  int total = boardService.dataCount(map);
+  PageInfo pageInfo = new PageInfo(page, size, total);
+
+  model.addAttribute("pageInfo", pageInfo);
+  model.addAttribute("list",     list);
+
+  [JSP]
+  <c:if test="${pageInfo.startPage > 1}">
+      <a href="list.action?page=1">≪</a>
+      <a href="list.action?page=${pageInfo.startPage - 1}"><</a>
+  </c:if>
+
+  <c:forEach var="i" begin="${pageInfo.startPage}" end="${pageInfo.endPage}">
+      <c:choose>
+          <c:when test="${i == pageInfo.page}">
+              <span>[${i}]</span>
+          </c:when>
+          <c:otherwise>
+              <a href="list.action?page=${i}">${i}</a>
+          </c:otherwise>
+      </c:choose>
+  </c:forEach>
+
+  <c:if test="${pageInfo.endPage < pageInfo.totalPage}">
+      <a href="list.action?page=${pageInfo.endPage + 1}">></a>
+      <a href="list.action?page=${pageInfo.totalPage}">≫</a>
+  </c:if>
+
+  장점: 가장 깔끔하고 재사용 쉬움. 실무에서 많이 사용.
+  단점: 클래스 파일 하나 더 만들어야 함.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 세 구조 비교표
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌──────────────────┬─────────────────────────────────────────────────────┐
+  │ 구조             │ 특징                                                │
+  ├──────────────────┼─────────────────────────────────────────────────────┤
+  │ 1. JSP에서 계산  │ 가장 단순. 빠르게 구현. 복잡한 검색엔 부적합.      │
+  │ 2. Controller 계산 │ 계산 로직이 Java 쪽에. 코드 반복 가능성 있음.    │
+  │ 3. PageInfo DTO  │ 가장 깔끔. 재사용 쉬움. 실무에서 선호.             │
+  │ 4. PaginateUtil  │ HTML까지 Java에서 생성. 복잡하지만 완전 자동화.    │
+  └──────────────────┴─────────────────────────────────────────────────────┘
+
+  취업 면접에서 물어볼 수 있는 질문:
+  "페이징 어떻게 구현하셨어요?"
+  → "저는 PageInfo 클래스를 만들어서 Controller에서 계산 후 Model로 넘기고,
+     JSP JSTL로 페이지 번호를 렌더링했습니다. offset은 (page-1)*size 공식으로
+     ServiceImpl에서 계산해서 MyBatis SQL에 전달했습니다."
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ STEP 5 — 검색 조건 유지하기 (실수하기 쉬운 부분)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  검색 후 페이지 이동 시 검색 조건이 날아가는 문제!
+
+  잘못된 페이지 링크:
+  <a href="list.action?page=${i}">${i}</a>
+  → 2페이지 클릭하면 검색어가 사라짐!
+
+  올바른 페이지 링크:
+  <a href="list.action?page=${i}&searchType=${searchType}&keyword=${keyword}">${i}</a>
+  → 검색 조건을 항상 같이 달고 다녀야 함!
+
+  Controller에서 URL을 미리 만들어서 넘기는 방법:
+  String pageUrl = "list.action?searchType=" + searchType
+                 + "&keyword=" + keyword;
+  model.addAttribute("pageUrl", pageUrl);
+
+  JSP:
+  <a href="${pageUrl}&page=${i}">${i}</a>
+  → pageUrl 뒤에 &page=번호만 붙이면 됨. 깔끔!
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ STEP 6 — 전체 코드를 처음부터 짜는 순서 (암기 금지, 순서 이해)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  페이징을 새로 짜야 할 때 이 순서로 생각하면 됨:
+
+  [1단계] DB에서 뭘 가져올지 결정
+          → 총 글 수(COUNT), 현재 페이지 글 목록(OFFSET/FETCH)
+
+  [2단계] SQL 작성
+          SELECT COUNT(NUM) FROM BBS → dataCount
+          SELECT ... ORDER BY NUM DESC OFFSET ? ROWS FETCH FIRST ? ROWS ONLY → listBoard
+
+  [3단계] Mapper 인터페이스 메서드 선언
+          int dataCount(Map map);
+          List<Board> listBoard(Map map);
+
+  [4단계] ServiceImpl에서 offset 계산
+          int offset = (page - 1) * size;
+          map.put("offset", offset);
+
+  [5단계] Controller에서 totalPage, startPage, endPage 계산
+          int totalPage = (int) Math.ceil((double) total / size);
+          int startPage = ((page - 1) / 10) * 10 + 1;
+          int endPage   = Math.min(startPage + 9, totalPage);
+
+  [6단계] Model에 담아서 JSP로 전달
+
+  [7단계] JSP에서 <c:forEach> 로 페이지 버튼 그리기
+          ≪ < 버튼 (startPage > 1 일 때만)
+          숫자 버튼 (startPage ~ endPage)
+          > ≫ 버튼 (endPage < totalPage 일 때만)
+
+  이 7단계가 머릿속에 그려지면 어떤 구조로 짜도 페이징 구현 가능!
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 자주 틀리는 실수 모음
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  실수 1: totalPage 계산에서 int 나눗셈
+  ✗  int totalPage = total / size;                     // 22/10=2 (틀림)
+  ✓  int totalPage = (int) Math.ceil((double)total/size); // 22/10=3 (맞음)
+
+  실수 2: endPage가 totalPage를 초과
+  ✗  endPage = startPage + 9;                          // totalPage=3인데 endPage=10
+  ✓  endPage = Math.min(startPage + 9, totalPage);     // min(10, 3) = 3
+
+  실수 3: 검색 조건 없이 페이지 링크
+  ✗  <a href="list.action?page=${i}">
+  ✓  <a href="list.action?page=${i}&searchType=${searchType}&keyword=${keyword}">
+
+  실수 4: escapeXml 안 써서 HTML 태그가 텍스트로 출력
+  ✗  <c:out value="${pageHtml}"/>         // &lt;a&gt; 처럼 보임
+  ✓  <c:out value="${pageHtml}" escapeXml="false"/>  // 링크로 보임
+  ✓  ${pageHtml}                          // 이것도 OK (EL은 기본 escapeXml=false)
+
+  실수 5: page 파라미터 기본값 없음
+  ✗  @RequestParam int page          // ?page= 없이 접근하면 에러!
+  ✓  @RequestParam(defaultValue="1") int page   // 없으면 1페이지로 자동 처리
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 핵심 공식 최종 정리 (이 5개만 이해하면 끝)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. 총 페이지 수
+     totalPage = (int) Math.ceil((double) total / size)
+     = total / size + (total%size > 0 ? 1 : 0)
+
+  2. SQL용 offset
+     offset = (page - 1) * size
+
+  3. 현재 블록 시작 페이지
+     startPage = ((page - 1) / blockSize) * blockSize + 1
+
+  4. 현재 블록 끝 페이지
+     endPage = Math.min(startPage + blockSize - 1, totalPage)
+
+  5. ≪ < 보이는 조건 → startPage > 1
+     > ≫ 보이는 조건 → endPage < totalPage
