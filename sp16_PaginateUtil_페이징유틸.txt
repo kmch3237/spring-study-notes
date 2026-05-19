@@ -1,0 +1,413 @@
+■■■ SP16 - PaginateUtil 페이징 유틸리티 완전 정리 ■■■
+작성일: 2026-05-19
+위치: com.doit.app.common.PaginateUtil.java   ← common 패키지! (공용 유틸)
+
+강사님이 "이게 제일 중요해" 라고 강조한 파일.
+페이지 번호 HTML(≪ < 1 2 3 4 5 > ≫)을 자동으로 만들어주는 클래스.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ PaginateUtil 이 하는 일 한 줄 요약
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Controller에서 PaginateUtil 메서드 하나 호출하면
+  → JSP에 붙여 넣기만 하면 되는 페이지 번호 HTML 문자열을 돌려줌
+
+  결과 예시:
+  "<div class='paginate'>
+     <a href='list.action?page=1'>≪</a>
+     <a href='list.action?page=5'><</a>
+     <a href='list.action?page=11'>11</a>
+     <a href='list.action?page=12'>12</a>
+     <span>13</span>             ← 현재 페이지 (링크 없음)
+     <a href='list.action?page=14'>14</a>
+     ...
+     <a href='list.action?page=20'>></a>
+     <a href='list.action?page=35'>≫</a>
+   </div>"
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ PaginateUtil 메서드 4종 + 도우미 메서드 2개
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌────────────────┬──────────────┬─────────────────────────────────────────┐
+  │ 메서드         │ 스타일       │ 이동 방식                               │
+  ├────────────────┼──────────────┼─────────────────────────────────────────┤
+  │ pageCount()    │ 계산기       │ 총 페이지 수만 반환 (HTML 없음)         │
+  │ paging()       │ 블록 방식    │ URL 이동 (<a href='..'>)                │
+  │ pagingMethod() │ 블록 방식    │ JS 함수 호출 (<a onclick='..()'>)       │
+  │ pagingUrl()    │ 중앙 집중    │ URL 이동                                │
+  │ pagingFunc()   │ 중앙 집중    │ JS 함수 호출                            │
+  └────────────────┴──────────────┴─────────────────────────────────────────┘
+
+  [ 블록 방식 ] : 1~10 → 11~20 → 21~30 으로 묶음 이동
+  [ 중앙 집중 ] : 현재 페이지가 항상 가운데에 오도록 유동적으로 이동
+
+  도우미 메서드 (내부용):
+  createLinkUrl(url, page, label)   → <a href='url?page=번호'>라벨</a>
+  createLinkClick(method, page, label) → <a href='method(번호);'>라벨</a>
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [1] pageCount() — 총 페이지 수 계산기
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  public int pageCount(int dataCount, int size) {
+      if (dataCount <= 0 || size <= 0)
+          return 0;
+
+      return dataCount / size + (dataCount % size > 0 ? 1 : 0);
+  }
+
+  [ 공식 분석 ]
+  dataCount / size         → 나누어 떨어지는 완전한 페이지 수
+  dataCount % size > 0 ? 1 : 0 → 나머지가 있으면 +1 (마지막 페이지 추가)
+
+  예시:
+  ┌──────────────┬────────┬────────────────────────────────────────────────┐
+  │ dataCount    │ size   │ 결과 (페이지 수)                               │
+  ├──────────────┼────────┼────────────────────────────────────────────────┤
+  │ 100          │  10    │ 100/10 + (100%10>0?1:0) = 10 + 0 = 10          │
+  │ 103          │  10    │ 103/10 + (103%10>0?1:0) = 10 + 1 = 11          │
+  │  22          │  10    │  22/10 + (22%10>0?1:0)  =  2 + 1 =  3          │
+  │  10          │  10    │  10/10 + (10%10>0?1:0)  =  1 + 0 =  1          │
+  │   0          │  10    │ dataCount<=0 이므로 0 반환                     │
+  └──────────────┴────────┴────────────────────────────────────────────────┘
+
+  Math.ceil() 과 비교:
+  Math.ceil(103.0 / 10) = Math.ceil(10.3) = 11  → 같은 결과
+  → 두 방법 다 가능. PaginateUtil은 직접 계산 방식 사용.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [2] paging() — 블록 방식, URL 이동 ★ 가장 많이 쓰임!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  public String paging(int currentPage, int totalPage, String listUrl)
+
+  파라미터:
+  - currentPage : 지금 보고 있는 페이지 번호 (예: 13)
+  - totalPage   : 전체 페이지 수 (예: 35)
+  - listUrl     : 페이지 링크에 붙일 기본 URL (예: "list.action")
+
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  핵심 알고리즘: currentPageSetup (기준점) 계산
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  int numPerBlock = 10;   // 한 블록에 보여줄 페이지 수
+
+  currentPageSetup = (currentPage / numPerBlock) * numPerBlock;
+
+  [1단계] 자바 정수 나눗셈의 특성을 이용:
+  currentPage 7  → 7/10 = 0 → 0*10 =  0
+  currentPage 13 → 13/10 = 1 → 1*10 = 10
+  currentPage 23 → 23/10 = 2 → 2*10 = 20
+
+  [2단계] 경계값 보정 (10, 20, 30 페이지 처리):
+  if (currentPage % numPerBlock == 0)
+      currentPageSetup = currentPageSetup - numPerBlock;
+
+  왜 필요하냐면:
+  currentPage 10 → 10/10 = 1 → 1*10 = 10   ← 잘못됨! (10페이지는 1~10 블록)
+  보정 후: 10 % 10 == 0 이므로 10 - 10 = 0  ← 올바름!
+
+  기준점(currentPageSetup) 완성 표:
+  ┌──────────────┬─────────────────┬──────────┬──────────────────────────┐
+  │ currentPage  │ /10 나눗셈결과  │ 보정 후  │ 표시되는 페이지 범위     │
+  ├──────────────┼─────────────────┼──────────┼──────────────────────────┤
+  │      7       │       0         │     0    │  1 ~ 10                  │
+  │     10       │      10→보정    │     0    │  1 ~ 10                  │
+  │     11       │      10         │    10    │ 11 ~ 20                  │
+  │     20       │      20→보정    │    10    │ 11 ~ 20                  │
+  │     21       │      20         │    20    │ 21 ~ 30                  │
+  │     35       │      30         │    30    │ 31 ~ 40 (totalPage까지)  │
+  └──────────────┴─────────────────┴──────────┴──────────────────────────┘
+
+  [3단계] << < 이전 버튼 출력
+  n = currentPage - numPerBlock;   // 이전 블록의 대표 페이지
+  if (totalPage > numPerBlock && currentPageSetup > 0) {
+      << → 1페이지로
+      <  → n 페이지로 (현재 - 10)
+  }
+  → currentPageSetup > 0 일 때만 (= 지금이 1~10 블록이면 이전 없음)
+
+  [4단계] 페이지 번호들 출력
+  page = currentPageSetup + 1;     // 시작 번호 (기준점+1)
+  while (page <= totalPage && page <= currentPageSetup + numPerBlock) {
+      if (page == currentPage)     // 현재 페이지는 <span> (링크 없음)
+          sb.append("<span>" + page + "</span>");
+      else                         // 나머지는 <a href='...'>
+          sb.append(createLinkUrl(listUrl, page, String.valueOf(page)));
+      page++;
+  }
+
+  [5단계] > >> 다음 버튼 출력
+  n = currentPage + numPerBlock;   // 다음 블록의 대표 페이지
+  if (n > totalPage) n = totalPage;
+  if (totalPage - currentPageSetup > numPerBlock) {
+      >  → n 페이지로 (현재 + 10)
+      >> → totalPage 로
+  }
+  → totalPage - currentPageSetup > numPerBlock 일 때만
+    (= 다음 블록이 아직 더 있을 때만)
+
+  [URL 처리 — ? & 자동 처리]
+  listUrl += listUrl.contains("?") ? "&" : "?";
+  → URL이 "list.action" 이면    → "list.action?page=2"
+  → URL이 "list.action?search=a" 이면 → "list.action?search=a&page=2"
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [3] pagingMethod() — 블록 방식, JS 함수 호출
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  public String pagingMethod(int currentPage, int totalPage, String methodName)
+
+  paging() 과 산술 로직은 완전히 동일!
+  유일한 차이: 링크 생성 방식
+
+  paging()         → createLinkUrl()   → <a href='list.action?page=3'>3</a>
+  pagingMethod()   → createLinkClick() → <a href='listPage(3);'>3</a>
+
+  JS 함수 호출 방식이 필요한 상황:
+  1. AJAX(비동기) 처리 — 페이지 전체를 새로고침 안 하고 목록만 바꿀 때
+  2. 검색 조건 유지 — JS 함수 안에서 검색 조건까지 챙겨서 요청 보낼 때
+
+  사용 예시:
+  // Controller
+  String pageHtml = paginateUtil.pagingMethod(page, totalPage, "listPage");
+  model.addAttribute("pageHtml", pageHtml);
+
+  // JSP
+  <c:out value="${pageHtml}" escapeXml="false"/>
+
+  // JavaScript (페이지 이동 함수 JSP에 별도 정의)
+  function listPage(page) {
+      var searchType = document.getElementById("searchType").value;
+      var keyword = document.getElementById("keyword").value;
+      location.href = "list.action?page=" + page
+                    + "&searchType=" + searchType
+                    + "&keyword=" + keyword;
+  }
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [4] pagingUrl() — 중앙 집중 방식, URL 이동
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  블록 방식과의 차이:
+  블록 방식   : 현재 페이지 관계없이 1~10, 11~20 으로 고정 묶음 표시
+  중앙 집중   : 현재 페이지가 항상 가운데 오도록 시작/끝 번호가 유동적으로 변함
+
+  예시 (numPerBlock=10, totalPage=35):
+  현재 페이지 6  → 1 2 3 4 5 [6] 7 8 9 10 11
+  현재 페이지 13 → 8 9 10 11 12 [13] 14 15 16 17 18
+  현재 페이지 32 → 26 27 28 29 30 31 [32] 33 34 35
+
+  핵심 로직:
+  page = 1;
+  if (currentPage > (numPerBlock / 2) + 1) {    // 6페이지 이상부터 중앙 계산
+      page = currentPage - (numPerBlock / 2);    // 시작 = 현재 - 5
+      // 단, 끝 부분에서 시작값이 너무 커지면 보정:
+      if (totalPage - page < numPerBlock)
+          page = totalPage - numPerBlock + 1;
+      if (page < 1) page = 1;
+  }
+
+  << < 도 다름 (블록 단위가 아닌 한 페이지씩 이동):
+  <  → 현재 - 1 (한 페이지 이전)
+  << → 1페이지 (처음으로)
+  >  → 현재 + 1 (한 페이지 다음)
+  >> → totalPage (마지막으로)
+
+  언제 쓰나:
+  → 쇼핑몰처럼 페이지 수가 많고 자유롭게 탐색하는 UI에 적합
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ [5] pagingFunc() — 중앙 집중 방식, JS 함수 호출
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  pagingUrl() 와 산술 로직 동일, 링크만 JS 함수 호출 방식으로 다름.
+  (pagingMethod 와 pagingUrl 의 조합)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ Controller에서 PaginateUtil 사용하는 방법
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  // 1. @Autowired 로 주입 (PaginateUtil이 @Service 이므로 가능)
+  @Autowired
+  private PaginateUtil paginateUtil;
+
+  @RequestMapping("/board/list.action")
+  public String list(
+          @RequestParam(defaultValue="1") int page,
+          @RequestParam(defaultValue="") String searchType,
+          @RequestParam(defaultValue="") String keyword,
+          Model model) throws Exception {
+
+      int size = 10;
+
+      Map<String, Object> map = new HashMap<>();
+      map.put("page",       page);
+      map.put("size",       size);
+      map.put("searchType", searchType);
+      map.put("keyword",    keyword);
+
+      // ① 전체 게시물 수
+      int total = boardService.dataCount(map);
+
+      // ② 총 페이지 수 계산
+      int totalPage = paginateUtil.pageCount(total, size);
+
+      // ③ 목록 조회
+      List<Board> list = boardService.listBoard(map);
+
+      // ④ 페이지 번호 HTML 생성 ★★★
+      String pageUrl = "list.action?searchType=" + searchType
+                     + "&keyword=" + keyword + "&";
+      //         URL 끝에 & 붙이면 paging()에서 ?없이 page= 바로 이어붙임
+
+      String pageHtml = paginateUtil.paging(page, totalPage, pageUrl);
+      // → "<div class='paginate'><a href='list.action?...&page=1'>≪</a>..."
+
+      // ⑤ JSP에 전달
+      model.addAttribute("list",       list);
+      model.addAttribute("total",      total);
+      model.addAttribute("page",       page);
+      model.addAttribute("size",       size);
+      model.addAttribute("searchType", searchType);
+      model.addAttribute("keyword",    keyword);
+      model.addAttribute("pageHtml",   pageHtml);   // ← HTML 문자열 통째로!
+
+      return "BbsList";
+  }
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ JSP에서 pageHtml 출력하는 방법
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ★ 반드시 escapeXml="false" 옵션 필요!
+
+  <c:out value="${pageHtml}" escapeXml="false"/>
+
+  escapeXml="false" 를 쓰는 이유:
+  pageHtml 안에 <a href='...'> 같은 HTML 태그가 들어 있음.
+  escapeXml="true" (기본값) → < 가 &lt; 로 변환되어 태그가 문자로 출력됨!
+  escapeXml="false"         → HTML 태그가 그대로 렌더링됨 (원하는 동작!)
+
+  비교:
+  escapeXml="true"  → &lt;a href='...'&gt;1&lt;/a&gt; (텍스트로 보임)
+  escapeXml="false" → 1 (링크로 보임) ← 이게 맞는 것!
+
+  또는 EL 식 직접 출력 (${} 은 자동으로 escapeXml=false):
+  ${pageHtml}   ← 이렇게 써도 됨. <c:out> 없이 바로 출력.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ PaginateUtil 전체 사용 흐름 그림
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [브라우저]
+  GET /board/list.action?page=13&searchType=all&keyword=스프링
+      ↓
+  [BoardController.list()]
+      total     = boardService.dataCount(map)   → 예: 350
+      totalPage = paginateUtil.pageCount(350, 10) → 35
+      list      = boardService.listBoard(map)   → 13페이지 글 10개
+      pageHtml  = paginateUtil.paging(13, 35, pageUrl)
+                  → "...<a href='..page=11'>≪</a>
+                      <a href='..page=3'><</a>
+                      <a href='..page=11'>11</a>
+                      <a href='..page=12'>12</a>
+                      <span>13</span>         ← 현재 페이지
+                      <a href='..page=14'>14</a>
+                      ...
+                      <a href='..page=20'>20</a>
+                      <a href='..page=23'>></a>
+                      <a href='..page=35'>≫</a>..."
+      ↓
+  [BbsList.jsp]
+      ${pageHtml}   → 페이지 번호 HTML 그대로 출력
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 실제 BoardServiceImpl.java — 실제 코드 정리
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  sp16 실제 파일과 아까 내가 정리한 내용의 차이가 있음! 확인 필수!
+
+  [ 차이 1: 생성자 주입(Constructor Injection) 사용 ]
+
+  내가 공부한 방식 (@Autowired 필드 주입):
+  @Autowired
+  private BoardMapper mapper;
+
+  실제 sp16 코드 (생성자 주입):
+  private final BoardMapper mapper;   ← final 선언!
+
+  @Autowired
+  public BoardServiceImpl(BoardMapper mapper) {
+      this.mapper = mapper;
+  }
+
+  차이:
+  ┌─────────────────────┬────────────────────────────────────────────────────┐
+  │ 방식                │ 특징                                               │
+  ├─────────────────────┼────────────────────────────────────────────────────┤
+  │ 필드 주입           │ 코드 짧음. 테스트 어려움. Spring 없이 쓰기 불편.  │
+  │ @Autowired private  │ (스프링 구버전에서 많이 사용)                     │
+  ├─────────────────────┼────────────────────────────────────────────────────┤
+  │ 생성자 주입         │ final 사용 가능 (불변). 테스트 쉬움. 권장 방식.   │
+  │ @Autowired 생성자   │ 스프링 공식 문서 추천 방식.                       │
+  └─────────────────────┴────────────────────────────────────────────────────┘
+  → 실무 및 최신 Spring에서는 생성자 주입이 권장됨!
+
+  [ 차이 2: Logger 사용 ]
+  private Logger log = LoggerFactory.getLogger(getClass());
+
+  → SLF4J 로거. 에러 발생 시 콘솔에 로그 출력용.
+  → log.info("insertBoard : ", e); → 예외 내용 기록
+
+  [ 차이 3: try-catch 에러 처리 ]
+  @Override
+  public void insertBoard(Board dto) throws Exception {
+      try {
+          mapper.insertBoard(dto);
+      } catch (Exception e) {
+          log.info("insertBoard : ", e);    // 로그 기록
+          throw e;                           // 다시 던짐 (Controller까지 전파)
+      }
+  }
+
+  → catch 후 throw e → 예외를 잡아서 로그만 남기고 다시 던짐
+  → Controller에서도 예외를 받을 수 있어서 에러 페이지로 이동 가능
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 4가지 방법 선택 기준 요약
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌──────────────────┬──────────────────────────────────────────────────────┐
+  │ 상황             │ 추천 메서드                                          │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │ 기본 게시판      │ paging()       — 블록 방식, URL 이동 (제일 일반적)  │
+  │ 검색 조건 유지   │ pagingMethod() — 블록 방식, JS 함수로 조건 챙기기   │
+  │ 쇼핑몰/포털 스타일│ pagingUrl()   — 중앙 집중, URL 이동                │
+  │ AJAX + 중앙      │ pagingFunc()   — 중앙 집중, JS 함수 호출            │
+  └──────────────────┴──────────────────────────────────────────────────────┘
+
+  → sp16 게시판에서는 paging() 또는 pagingMethod() 가 가장 적합
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+○ 핵심 3줄 요약
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. pageCount() = dataCount/size + (나머지>0 ? 1 : 0)  → 총 페이지 수
+  2. paging() 핵심 = (currentPage/10)*10 으로 블록 기준점 계산
+                     10의 배수는 -10 보정 (경계값 처리)
+  3. JSP에서 ${pageHtml} 또는 <c:out escapeXml="false"> 로 HTML 태그 그대로 출력
