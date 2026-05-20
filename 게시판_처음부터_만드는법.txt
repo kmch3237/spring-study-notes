@@ -1,0 +1,342 @@
+■■■ 아무 레퍼런스 없이 게시판 만들기 — 생각의 흐름 가이드 ■■■
+
+  이 파일의 목적:
+  취업 후 "게시판 만들어보세요"라는 말이 나왔을 때
+  머릿속에서 어떤 순서로 생각해야 하는지 그 흐름을 적은 것.
+  코드 레퍼런스가 아니라 "다음에 뭘 해야 하지?"라는 질문에 스스로 답하는 연습용.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  [전체 흐름 한 눈에]
+
+  DB 설계 → DTO → Mapper(SQL) → Service → Controller → JSP
+                                                        ↑
+                              이 방향으로 올라오면서 연결해가는 것
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+────────────────────────────────────────────────────────
+STEP 0. 프로젝트 세팅 — "일단 뼈대를 만들자"
+────────────────────────────────────────────────────────
+
+  생각의 흐름:
+    "일단 프로젝트가 있어야 만들지. 그런데 프로젝트 만들기 전에
+     뭘 쓸 건지 정해야 해. 스프링 MVC? 스프링 부트?"
+
+  결정하는 것들:
+    - 프레임워크: Spring MVC (레거시) or Spring Boot
+    - DB: Oracle / MySQL / MariaDB
+    - ORM: MyBatis
+
+  만드는 것:
+    □ STS / IntelliJ 에서 Maven 프로젝트 생성
+    □ pom.xml — 필요한 라이브러리 추가
+        spring-webmvc, mybatis, mybatis-spring,
+        ojdbc(DB드라이버), jstl, dbcp2(커넥션풀)
+    □ web.xml — DispatcherServlet, 한글 인코딩 필터
+    □ servlet-context.xml — 컨트롤러 스캔, ViewResolver(JSP 경로)
+    □ root-context.xml — DB 연결(DataSource), MyBatis 설정
+
+  "이게 다 되면 서버를 띄워서 404가 아닌 뭔가가 나오는지 확인한다"
+
+  ★ 자주 나는 문제:
+    - CSS 안 먹힘 → servlet-context.xml 에 <mvc:resources> 설정 누락
+    - 새로고침 하면 화면 깨짐 → contextPath 안 붙인 절대경로 문제
+
+
+────────────────────────────────────────────────────────
+STEP 1. DB 테이블 설계 — "무엇을 저장할 건가?"
+────────────────────────────────────────────────────────
+
+  생각의 흐름:
+    "게시판이니까 게시글을 저장해야 해.
+     게시글 하나에 무슨 정보가 필요하지?
+     → 번호, 제목, 내용, 작성자, 비밀번호, 날짜, 조회수, IP"
+
+  SQL 작성 순서:
+    1. 시퀀스 만들기 (Oracle) — 번호 자동 증가용
+       CREATE SEQUENCE bbs_seq START WITH 1 INCREMENT BY 1;
+
+    2. 테이블 만들기
+       CREATE TABLE bbs (
+           num      NUMBER PRIMARY KEY,
+           subject  VARCHAR2(200) NOT NULL,
+           content  CLOB,
+           name     VARCHAR2(20) NOT NULL,
+           pwd      VARCHAR2(10) NOT NULL,
+           regDate  DATE DEFAULT SYSDATE,
+           hitCount NUMBER DEFAULT 0,
+           ipAddr   VARCHAR2(20)
+       );
+
+  "테이블을 만들었다. 그러면 이제 자바에서 이 테이블 한 줄을 표현할 게 필요해"
+
+
+────────────────────────────────────────────────────────
+STEP 2. DTO (Board.java) — "DB 한 줄을 자바 객체로"
+────────────────────────────────────────────────────────
+
+  생각의 흐름:
+    "DB에서 데이터를 가져오면 자바로 받아야 하는데,
+     받을 그릇이 필요해. 그게 DTO야.
+     테이블 컬럼 하나 = DTO 필드 하나."
+
+  Board.java 구성:
+    - 필드: num, subject, content, name, pwd, regDate, hitCount, ipAddr
+    - getter/setter (전부 생성)
+    - 기본 생성자
+
+  주의:
+    - 필드명과 DB 컬럼명을 맞춰야 MyBatis가 자동 매핑해줌
+    - 대소문자 다르면 수동 매핑(resultMap) 필요
+
+  "DTO를 만들었다. 그러면 DB에서 실제로 데이터를 꺼내올 SQL이 필요해"
+
+
+────────────────────────────────────────────────────────
+STEP 3. SQL (bbsMapper.xml) — "DB에서 어떻게 꺼낼까?"
+────────────────────────────────────────────────────────
+
+  생각의 흐름:
+    "데이터를 꺼내려면 SQL이 필요해.
+     MyBatis를 쓰니까 XML에 쿼리를 작성해야 해.
+     어떤 기능이 필요하지?
+     → 목록조회, 글쓰기, 글상세, 수정, 삭제, 전체건수"
+
+  bbsMapper.xml 에 작성하는 쿼리들:
+    - dataCount : 검색 조건에 맞는 총 게시글 수 (페이징 계산용)
+    - listBoard  : 현재 페이지에 보여줄 게시글 목록 (OFFSET/FETCH)
+    - insertBoard: 게시글 저장
+    - (나중에) article, updateBoard, deleteBoard
+
+  페이징 SQL 핵심 (Oracle):
+    SELECT * FROM bbs
+    ORDER BY num DESC
+    OFFSET #{offset} ROWS FETCH NEXT #{size} ROWS ONLY
+
+  검색 SQL 핵심:
+    <where>
+      <if test="schType == 'subject'"> AND INSTR(subject, #{kwd}) > 0 </if>
+      <if test="schType == 'name'">    AND INSTR(name, #{kwd}) > 0    </if>
+      <if test="schType == 'all'">     AND (INSTR(subject,#{kwd})>0 OR INSTR(content,#{kwd})>0) </if>
+    </where>
+
+  "SQL을 만들었다. 이걸 자바에서 호출할 인터페이스가 필요해"
+
+
+────────────────────────────────────────────────────────
+STEP 4. Mapper 인터페이스 (BoardMapper.java) — "SQL과 자바를 연결"
+────────────────────────────────────────────────────────
+
+  생각의 흐름:
+    "XML에 SQL을 썼는데, 자바에서 어떻게 호출하지?
+     MyBatis는 인터페이스 메서드 이름과 XML의 id를 연결해줘.
+     그래서 인터페이스가 필요해."
+
+  BoardMapper.java:
+    @Mapper
+    public interface BoardMapper {
+        int dataCount(Map<String, Object> map) throws Exception;
+        List<Board> listBoard(Map<String, Object> map) throws Exception;
+        void insertBoard(Board dto) throws Exception;
+    }
+
+  주의:
+    - @Mapper 붙여야 MyBatis가 구현체를 자동 생성해줌
+    - 메서드 이름 = bbsMapper.xml 의 id 와 반드시 일치
+
+  "Mapper를 만들었다. 그런데 Controller가 Mapper를 직접 쓰면 안 돼.
+   중간에 Service가 있어야 해."
+
+
+────────────────────────────────────────────────────────
+STEP 5. Service — "비즈니스 로직을 여기서"
+────────────────────────────────────────────────────────
+
+  생각의 흐름:
+    "왜 Service가 필요하지?
+     Controller = 요청/응답 담당. DB 로직이 들어가면 역할이 섞여.
+     Service = 실제 데이터 처리 담당. 여기서 Mapper를 호출해.
+     나중에 로직이 복잡해지면 Service만 고치면 됨."
+
+  파일 2개:
+    BoardService.java (인터페이스)
+      - 메서드 목록만 선언
+
+    BoardServiceImpl.java (구현 클래스)
+      - @Service
+      - BoardMapper 주입받아서 실제 호출
+
+  구조:
+    @Service
+    public class BoardServiceImpl implements BoardService {
+        private final BoardMapper boardMapper;
+
+        public BoardServiceImpl(BoardMapper boardMapper) {
+            this.boardMapper = boardMapper;
+        }
+
+        @Override
+        public List<Board> listBoard(Map<String, Object> map) throws Exception {
+            return boardMapper.listBoard(map);
+        }
+    }
+
+  "Service를 만들었다. 이제 사용자 요청을 받을 Controller가 필요해"
+
+
+────────────────────────────────────────────────────────
+STEP 6. Controller — "사용자 요청을 받아서 처리"
+────────────────────────────────────────────────────────
+
+  생각의 흐름:
+    "사용자가 /bbs/list 로 들어오면 누가 받지?
+     Controller야. Controller는 요청을 받아서
+     Service에 일을 시키고, 결과를 JSP에 넘겨주는 역할."
+
+  @Controller
+  @RequestMapping("/bbs/")
+  public class BoardController {
+
+      private final BoardService boardService;
+      private final MyUtil myUtil;
+      private final PaginateUtil paginateUtil;
+
+      // 생성자 주입
+      public BoardController(BoardService boardService, ...) { ... }
+
+      // 목록 조회
+      @RequestMapping(value="list", method={RequestMethod.GET, RequestMethod.POST})
+      public String list(
+          @RequestParam(name="page",    defaultValue="1")   int currentPage,
+          @RequestParam(name="schType", defaultValue="all") String schType,
+          @RequestParam(name="kwd",     defaultValue="")    String kwd,
+          Model model, HttpServletRequest req
+      ) throws Exception {
+          // 5단계 페이징 로직 실행
+          // model.addAttribute 로 JSP에 전달
+          return "list";
+      }
+  }
+
+  ★ @RequestParam name 속성 규칙:
+    name = "URL에서 실제로 넘어오는 파라미터 이름"
+    변수명(자바)은 달라도 됨. name을 맞춰야 동작함.
+
+  ★ defaultValue 규칙:
+    목록 첫 진입 시 URL에 파라미터가 없을 수 있음
+    → 없으면 400 에러 → defaultValue 필수
+
+  "Controller를 만들었다. 이제 사용자에게 보여줄 화면(JSP)이 필요해"
+
+
+────────────────────────────────────────────────────────
+STEP 7. JSP — "사용자가 보는 화면"
+────────────────────────────────────────────────────────
+
+  생각의 흐름:
+    "Controller가 return 'list' 하면 list.jsp를 찾아.
+     list.jsp 에는 Model에 담긴 데이터를 표현해야 해.
+     어떤 데이터가 필요하지?
+     → 게시글 목록(list), 페이징(paging), 검색상태(schType, kwd),
+        총건수(dataCount), 게시글 링크(articleUrl)"
+
+  list.jsp 작성 순서:
+    1. JSTL taglib 선언 (c:, fmt:)
+    2. CSS 링크 — contextPath 붙여야 함
+    3. 총 건수 출력: ${dataCount}개
+    4. c:forEach 로 게시글 목록 반복
+    5. 페이징 출력: ${paging} (HTML 문자열 그대로 출력)
+    6. 검색폼 구성 (select + input + 검색버튼)
+    7. 글올리기 버튼
+
+  write.jsp 작성 순서:
+    1. 폼 태그 (method="post", action은 JS에서 동적으로 설정)
+    2. 입력 필드: subject, name, content, pwd
+    3. sendOk() JS 함수: 빈 값 체크 후 f.submit()
+    4. 버튼: 등록완료, 다시입력, 등록취소 (mode로 텍스트 분기)
+
+
+────────────────────────────────────────────────────────
+STEP 8. CSS — "화면을 예쁘게"
+────────────────────────────────────────────────────────
+
+  생각의 흐름:
+    "화면이 뜨긴 하는데 너무 날것이야.
+     CSS를 적용해야 해. 그런데 CSS가 안 먹힐 때가 있어."
+
+  CSS 안 먹히는 원인 TOP 3:
+    1. servlet-context.xml 에 resources 매핑 없음
+       → <mvc:resources mapping="/resources/**" location="/resources/"/>
+    2. href 경로에 contextPath 안 붙임
+       → href="${pageContext.request.contextPath}/resources/css/listStyle.css"
+    3. 파일 경로 오타 (대소문자 포함)
+
+  ★ 새로고침 시 CSS 안 먹히는 현상:
+    경로를 상대경로로 쓰면 URL 깊이에 따라 경로가 달라짐
+    → 항상 contextPath 붙인 절대경로 사용
+
+
+────────────────────────────────────────────────────────
+STEP 9. 테스트 & 디버깅 — "진짜 돌아가나?"
+────────────────────────────────────────────────────────
+
+  생각의 흐름:
+    "코드를 다 짰다. 서버를 띄워보자.
+     어디서 막히면 로그를 봐야 해.
+     어느 레이어에서 터졌는지 파악하는 게 우선이야."
+
+  디버깅 체크 순서:
+    1. 서버 콘솔 로그 확인 (500 에러 → 자바 오류)
+    2. 브라우저 개발자도구 콘솔 (404 → URL 경로 오류, CSS 문제)
+    3. DB 직접 쿼리 실행 (SQL 오류 분리)
+    4. log.info() 로 특정 값 출력해서 흐름 추적
+
+  자주 만나는 에러:
+    - 500 NullPointerException → Service/Mapper 주입 안 됨
+    - 400 Bad Request → @RequestParam defaultValue 누락
+    - 404 Not Found → URL 매핑 오류 or JSP 경로 오류
+    - 화면에 데이터 안 나옴 → model.addAttribute 키 이름과 JSP ${} 이름 불일치
+
+
+────────────────────────────────────────────────────────
+전체 순서 요약 (아무것도 없을 때 이 순서로 생각하면 됨)
+────────────────────────────────────────────────────────
+
+  ① 프로젝트 세팅 (pom.xml, web.xml, servlet-context, root-context)
+        ↓ "구조가 생겼다. 이제 데이터를 설계하자"
+  ② DB 테이블 설계 (어떤 컬럼이 필요한가)
+        ↓ "테이블이 생겼다. 자바에서 표현할 DTO가 필요하다"
+  ③ DTO 작성 (Board.java — 컬럼 하나 = 필드 하나)
+        ↓ "DTO가 생겼다. DB에서 꺼낼 SQL이 필요하다"
+  ④ SQL 작성 (bbsMapper.xml — 목록/건수/등록)
+        ↓ "SQL이 있다. 자바에서 호출할 인터페이스가 필요하다"
+  ⑤ Mapper 인터페이스 (BoardMapper.java — @Mapper)
+        ↓ "Mapper가 있다. Controller가 직접 쓰면 안 되니 Service를 만들자"
+  ⑥ Service (BoardService 인터페이스 + BoardServiceImpl 구현)
+        ↓ "Service가 있다. 요청을 받아줄 Controller가 필요하다"
+  ⑦ Controller (BoardController.java — URL 매핑, @RequestParam, Model)
+        ↓ "Controller가 있다. 사용자에게 보여줄 JSP가 필요하다"
+  ⑧ JSP (list.jsp, write.jsp — JSTL, ${}, 폼)
+        ↓ "화면이 뜬다. 이제 CSS로 다듬자"
+  ⑨ CSS (listStyle.css, writeStyle.css — contextPath 경로 주의)
+        ↓ "다 됐다. 전체 흐름 테스트"
+  ⑩ 테스트 & 디버깅 (로그 보기, 에러 원인 레이어별로 추적)
+
+
+────────────────────────────────────────────────────────
+마음가짐 — 막혔을 때 하는 질문
+────────────────────────────────────────────────────────
+
+  "지금 어느 레이어에 있지?"
+    → DB? SQL? Mapper? Service? Controller? JSP?
+
+  "이 레이어에서 내가 만들어야 할 건 뭐였지?"
+
+  "이전 레이어에서 이 레이어로 뭐가 넘어와야 하지?"
+
+  "에러 로그에서 클래스 이름과 줄 번호를 먼저 봐라"
+
+  → 순서를 외우는 게 아니라
+    "지금 뭐가 없어서 다음이 안 되는지"를 느끼는 게 목표.
+    sp16_board 를 3번 처음부터 만들어보면 자연스럽게 몸에 밴다.
