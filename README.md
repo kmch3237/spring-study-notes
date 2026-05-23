@@ -11,6 +11,8 @@ Spring MVC 수업 내용을 정리한 저장소입니다.
 | [sp14_mvc_crud_흐름정리.txt](./sp14_mvc_crud_흐름정리.txt) | Insert / Update / Delete 요청 처리 흐름 상세 정리 |
 | [sp14_vs_sp15_비교.txt](./sp14_vs_sp15_비교.txt) | XML 방식 vs Annotation 방식 전체 비교 |
 | [sp15_annotation_study.txt](./sp15_annotation_study.txt) | Spring MVC Annotation 개념 및 예시 정리 |
+| [sp16_board_study.txt](./sp16_board_study.txt) | 게시판 실전 — 3계층 구조, @Mapper, DBCP2, 페이징, 검색 완전 정리 |
+| [sp16_delete_삭제처리_0523.txt](./sp16_delete_삭제처리_0523.txt) | 게시물 삭제(delete) 흐름 — Controller → Service → Mapper → XML 4단계 완전 정리 |
 | [git_명령어_정리.txt](./git_명령어_정리.txt) | Git 기본 명령어 및 집↔학원 작업 순서 정리 |
 
 ---
@@ -26,6 +28,12 @@ Spring MVC 수업 내용을 정리한 저장소입니다.
   - @Controller, @RequestMapping, @Autowired
   - XML bean 등록 → Annotation으로 대체
   - component-scan 활용
+
+- [x] sp16 — Spring MVC 게시판 실전 (3계층 구조 + MyBatis)
+  - Controller → Service → Mapper 3계층 구조
+  - @Mapper 인터페이스 (구현 클래스 없이 SQL 자동 연결)
+  - DBCP2 커넥션 풀 (BasicDataSource)
+  - 게시글 CRUD + 페이징(OFFSET/FETCH) + 검색 + 이전글/다음글
 
 ---
 
