@@ -14,6 +14,7 @@ Spring MVC 수업 내용을 정리한 저장소입니다.
 | [sp16_board_study.txt](./sp16_board_study.txt) | 게시판 실전 — 3계층 구조, @Mapper, DBCP2, 페이징, 검색 완전 정리 |
 | [sp16_delete_삭제처리_0523.txt](./sp16_delete_삭제처리_0523.txt) | 게시물 삭제(delete) 흐름 — Controller → Service → Mapper → XML 4단계 완전 정리 |
 | [git_명령어_정리.txt](./git_명령어_정리.txt) | Git 기본 명령어 및 집↔학원 작업 순서 정리 |
+| [vscode_프로젝트_루트_설정_이유.md](./vscode_프로젝트_루트_설정_이유.md) | VS Code에서 프로젝트 폴더를 잘못 열면 빨간줄 생기는 이유 및 해결법 |
 
 ---
 
@@ -65,8 +66,8 @@ Spring MVC 수업 내용을 정리한 저장소입니다.
 
 ## 개발 환경
 
-- IDE : Spring Tool Suite 3.9.18
+- IDE : Spring Tool Suite 3.9.18 / VS Code
 - Framework : Spring MVC 5.3.39
 - DB : Oracle
 - Build : Maven
-- Java : 14
+- Java : 14 / 17
