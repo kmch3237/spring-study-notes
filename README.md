@@ -15,6 +15,7 @@ Spring MVC 수업 내용을 정리한 저장소입니다.
 | [sp16_delete_삭제처리_0523.txt](./sp16_delete_삭제처리_0523.txt) | 게시물 삭제(delete) 흐름 — Controller → Service → Mapper → XML 4단계 완전 정리 |
 | [git_명령어_정리.txt](./git_명령어_정리.txt) | Git 기본 명령어 및 집↔학원 작업 순서 정리 |
 | [vscode_프로젝트_루트_설정_이유.md](./vscode_프로젝트_루트_설정_이유.md) | VS Code에서 프로젝트 폴더를 잘못 열면 빨간줄 생기는 이유 및 해결법 |
+| [springboot_로그인_기본개념.md](./springboot_로그인_기본개념.md) | URI/URL, Cookie, Session 개념 + 로그인 전체 흐름 + Spring Boot 코드 |
 
 ---
 
