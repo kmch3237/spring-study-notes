@@ -1,0 +1,26 @@
+
+position minbasicpay
+
+employee basicpay  난 여기도 minbasicpay
+
+
+삼항연산자
+
+"직원 추가" onclick="location.href= employeeInsertForm.action" 맞는지 
+
+
+제이쿼리
+
+datepicker
+min 붙여쓰기 
+
+날짜피커
+dataformat보기
+
+
+jsp > servlet > controller > jsp
+
+ajax 처음 안 뜸  
+
+
+

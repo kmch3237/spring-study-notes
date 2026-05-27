@@ -1,0 +1,49 @@
+0515 
+
+오전
+
+클래스를 빈으로 등록한다
+=빈은 그냥 스프링 컨테이너가 대신 만들어주고 관리해주는 객체예요.
+ 보통 자바에서 객체를 쓰려면 이렇게 MyService service = new MyService();
+그런데 스프링을 쓰면 이 new를 내가 안 하고, 스프링한테 "이 클래스 너가 관리해줘"라고 맡겨요. 그렇게 스프링이 관리하게 된 객체를 빈이라고 부릅니다.
+
+
+어노테이션
+우리가 편하고
+스프링이 일을 더하는 
+
+
+트랜잭션
+동시에 처리...
+ex) 상품 결제 동시 머니빠져나가고 포인트쌓이고 ~~ 이런식으로 
+어떤 일이 일어났을 때 동시에 처리가 되는 ..
+
+
+이 흐름이 정상 처리가 되면 commit 안되면 롤백해주는 어노테이션은 @Transactional
+
+계층이 많아질수록 이런 과정이 많아짐..
+
+
+
+
+
+메타데이터 뜻
+
+uri/url
+
+get/post
+
+
+1.
+mav.addObject("EmployeeList", employeeList);
+mav.setViewName("EmployeeList"); // /WEB-INF/views/ EmployeeList + .jsp 
+EmployeeList는 같은가 다른가...
+
+2. id=??, name=?? 차이
+
+
+3. onclick="location.href='employeelist.action
+ location.href쓰는이유..
+
+
+4. update/delete . jsp id보내는거 추가, update도 ajax처리  insert,update 처음들갔을때 1000000만안뜨는거
